@@ -167,7 +167,7 @@ class ProjectManager: ObservableObject {
             
             let makefile = """
             export ARCHS = arm64
-            export TARGET = iphone:clang:14.5:latest
+            export TARGET = iphone:clang:16.5:14.0
             
             include $(THEOS)/makefiles/common.mk
             
