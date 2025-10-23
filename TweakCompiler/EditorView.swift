@@ -17,7 +17,7 @@ struct EditorView: View {
             }
             .navigationTitle(projectManager.currentProject?.name ?? "Files")
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
+                ToolbarItem(placement: .navigationBarTrailing) {
                     if projectManager.currentProject != nil {
                         Menu {
                             Button(action: { showingNewFileSheet = true }) {
@@ -29,14 +29,6 @@ struct EditorView: View {
                             }
                         } label: {
                             Image(systemName: "plus.circle")
-                        }
-                    }
-                }
-                
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    if projectManager.currentProject != nil {
-                        Button("Close") {
-                            projectManager.currentProject = nil
                         }
                     }
                 }
@@ -178,7 +170,20 @@ struct FileListView: View {
     
     private func loadFiles() {
         fileItems = scanDirectory(at: projectPath, relativeTo: projectPath)
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            .sorted { item1, item2 in
+                // Sort tweak files first
+                let item1IsTweak = item1.isTweakFile
+                let item2IsTweak = item2.isTweakFile
+                
+                if item1IsTweak && !item2IsTweak {
+                    return true
+                } else if !item1IsTweak && item2IsTweak {
+                    return false
+                } else {
+                    // If both are tweak files or both are not, sort alphabetically
+                    return item1.name.localizedCaseInsensitiveCompare(item2.name) == .orderedAscending
+                }
+            }
     }
     
     private func scanDirectory(at url: URL, relativeTo rootURL: URL) -> [FileItem] {
@@ -268,12 +273,24 @@ struct FileItem: Identifiable {
     let isDirectory: Bool
     let fileSize: Int?
     
+    // Check if this is a tweak file
+    var isTweakFile: Bool {
+        let ext = path.pathExtension.lowercased()
+        return ["x", "xm", "xi", "xmi"].contains(ext)
+    }
+    
     var icon: String {
         if isDirectory { return "folder.fill" }
         
         let ext = path.pathExtension.lowercased()
+        
+        // Tweak files
+        if isTweakFile {
+            return "doc.text.fill"
+        }
+        
         switch ext {
-        case "x", "m", "mm", "c", "cpp", "h", "hpp", "swift":
+        case "m", "mm", "c", "cpp", "h", "hpp", "swift":
             return "doc.text.fill"
         case "plist":
             return "doc.badge.gearshape"
@@ -297,8 +314,14 @@ struct FileItem: Identifiable {
         if isDirectory { return .blue }
         
         let ext = path.pathExtension.lowercased()
+        
+        // Tweak files are always blue (main files)
+        if isTweakFile {
+            return .blue
+        }
+        
         switch ext {
-        case "x", "m", "mm", "c", "cpp":
+        case "m", "mm", "c", "cpp":
             return .blue
         case "h", "hpp":
             return .purple
@@ -542,18 +565,9 @@ struct FileEditorView: View {
                     .foregroundColor(file.color)
                 Text(file.name)
                     .font(.system(.body, design: .monospaced))
+                    .foregroundColor(isEditing ? .orange : .primary)
                 
                 Spacer()
-                
-                if isEditing {
-                    Text("Edited")
-                        .font(.caption)
-                        .foregroundColor(.orange)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color.orange.opacity(0.2))
-                        .cornerRadius(4)
-                }
                 
                 Button("Save") {
                     saveFile()
@@ -736,34 +750,32 @@ struct SyntaxHighlightedEditor: View {
     let onTextChange: (String) -> Void
     
     var body: some View {
-        GeometryReader { geometry in
-            ScrollView([.horizontal, .vertical]) {
-                HStack(alignment: .top, spacing: 0) {
-                    // Line numbers
-                    VStack(alignment: .trailing, spacing: 0) {
-                        ForEach(1...max(1, content.components(separatedBy: .newlines).count), id: \.self) { lineNumber in
-                            Text("\(lineNumber)")
-                                .font(.system(size: fontSize, design: .monospaced))
-                                .foregroundColor(.secondary)
-                                .frame(minWidth: 40, alignment: .trailing)
-                                .padding(.horizontal, 8)
-                        }
+        HStack(alignment: .top, spacing: 0) {
+            // Line numbers (scrollable vertically only)
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .trailing, spacing: 0) {
+                    ForEach(1...max(1, content.components(separatedBy: .newlines).count), id: \.self) { lineNumber in
+                        Text("\(lineNumber)")
+                            .font(.system(size: fontSize, design: .monospaced))
+                            .foregroundColor(.secondary)
+                            .frame(minWidth: 40, alignment: .trailing)
+                            .padding(.horizontal, 8)
                     }
-                    .padding(.top, 8)
-                    .background(Color(.systemGray6))
-                    
-                    // Editor content with basic syntax highlighting
-                    TextEditor(text: $content)
-                        .font(.system(size: fontSize, design: .monospaced))
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
-                        .onChange(of: content) { newValue in
-                            isEditing = true
-                            onTextChange(newValue)
-                        }
-                        .frame(minWidth: geometry.size.width - 70, minHeight: geometry.size.height, alignment: .topLeading)
                 }
+                .padding(.top, 8)
             }
+            .frame(width: 60)
+            .background(Color(.systemGray6))
+            
+            // Editor content (vertical scrolling only)
+            TextEditor(text: $content)
+                .font(.system(size: fontSize, design: .monospaced))
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+                .onChange(of: content) { newValue in
+                    isEditing = true
+                    onTextChange(newValue)
+                }
         }
         .background(Color(.systemBackground))
     }
