@@ -535,7 +535,6 @@ struct FileEditorView: View {
     
     @State private var content = ""
     @State private var originalContent = ""
-    @State private var isEditing = false
     @State private var fontSize: CGFloat = 14
     @State private var showSaveAlert = false
     @State private var showingSearch = false
@@ -544,6 +543,10 @@ struct FileEditorView: View {
     @State private var undoStack: [String] = []
     @State private var redoStack: [String] = []
     @Environment(\.dismiss) private var dismiss
+    
+    private var isEditing: Bool {
+        return content != originalContent
+    }
     
     var body: some View {
         VStack(spacing: 0) {
@@ -569,6 +572,11 @@ struct FileEditorView: View {
                 
                 Spacer()
                 
+                Button(action: pasteReplace) {
+                    Image(systemName: "doc.on.clipboard")
+                }
+                .buttonStyle(.bordered)
+                
                 Button("Save") {
                     saveFile()
                 }
@@ -581,7 +589,6 @@ struct FileEditorView: View {
             // Code editor with syntax highlighting
             SyntaxHighlightedEditor(
                 content: $content,
-                isEditing: $isEditing,
                 fontSize: $fontSize,
                 fileExtension: file.path.pathExtension,
                 onTextChange: { newText in
@@ -656,10 +663,16 @@ struct FileEditorView: View {
         do {
             try content.write(to: file.path, atomically: true, encoding: .utf8)
             originalContent = content
-            isEditing = false
             showSaveAlert = true
         } catch {
             print("Error saving file: \(error)")
+        }
+    }
+    
+    private func pasteReplace() {
+        if let clipboardText = UIPasteboard.general.string {
+            pushUndo()
+            content = clipboardText
         }
     }
     
@@ -672,14 +685,12 @@ struct FileEditorView: View {
         guard !undoStack.isEmpty else { return }
         redoStack.append(content)
         content = undoStack.removeLast()
-        isEditing = true
     }
     
     private func redo() {
         guard !redoStack.isEmpty else { return }
         undoStack.append(content)
         content = redoStack.removeLast()
-        isEditing = true
     }
     
     private func performReplace() {
@@ -687,7 +698,6 @@ struct FileEditorView: View {
         if let range = content.range(of: searchText) {
             pushUndo()
             content.replaceSubrange(range, with: replaceText)
-            isEditing = true
         }
     }
     
@@ -695,7 +705,6 @@ struct FileEditorView: View {
         guard !searchText.isEmpty else { return }
         pushUndo()
         content = content.replacingOccurrences(of: searchText, with: replaceText)
-        isEditing = true
     }
 }
 
@@ -741,43 +750,161 @@ struct SearchReplaceBar: View {
     }
 }
 
-// Syntax highlighted editor
+// Syntax highlighted editor with synchronized scrolling
 struct SyntaxHighlightedEditor: View {
     @Binding var content: String
-    @Binding var isEditing: Bool
     @Binding var fontSize: CGFloat
     let fileExtension: String
     let onTextChange: (String) -> Void
     
+    @State private var scrollOffset: CGFloat = 0
+    
     var body: some View {
-        HStack(alignment: .top, spacing: 0) {
-            // Line numbers (scrollable vertically only)
-            ScrollView(.vertical, showsIndicators: false) {
+        GeometryReader { geometry in
+            HStack(alignment: .top, spacing: 0) {
+                // Line numbers with fixed width
                 VStack(alignment: .trailing, spacing: 0) {
-                    ForEach(1...max(1, content.components(separatedBy: .newlines).count), id: \.self) { lineNumber in
+                    ForEach(lineNumbers, id: \.self) { lineNumber in
                         Text("\(lineNumber)")
                             .font(.system(size: fontSize, design: .monospaced))
                             .foregroundColor(.secondary)
+                            .frame(height: lineHeight)
                             .frame(minWidth: 40, alignment: .trailing)
                             .padding(.horizontal, 8)
                     }
                 }
-                .padding(.top, 8)
+                .offset(y: -scrollOffset)
+                .frame(width: 56)
+                .background(Color(.systemGray6))
+                .clipped()
+                
+                // Editor content with syntax highlighting
+                SyntaxHighlightedTextEditor(
+                    text: $content,
+                    fontSize: fontSize,
+                    fileExtension: fileExtension,
+                    onScrollOffsetChange: { offset in
+                        scrollOffset = offset
+                    },
+                    onTextChange: onTextChange
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(width: 60)
-            .background(Color(.systemGray6))
-            
-            // Editor content (vertical scrolling only)
-            TextEditor(text: $content)
-                .font(.system(size: fontSize, design: .monospaced))
-                .autocorrectionDisabled()
-                .textInputAutocapitalization(.never)
-                .onChange(of: content) { newValue in
-                    isEditing = true
-                    onTextChange(newValue)
-                }
         }
         .background(Color(.systemBackground))
+    }
+    
+    private var lineNumbers: [Int] {
+        let count = max(1, content.components(separatedBy: .newlines).count)
+        return Array(1...count)
+    }
+    
+    private var lineHeight: CGFloat {
+        // Approximate line height based on font size
+        return fontSize * 1.2
+    }
+}
+
+// Custom text editor with syntax highlighting and scroll tracking
+struct SyntaxHighlightedTextEditor: UIViewRepresentable {
+    @Binding var text: String
+    let fontSize: CGFloat
+    let fileExtension: String
+    let onScrollOffsetChange: (CGFloat) -> Void
+    let onTextChange: (String) -> Void
+    
+    func makeUIView(context: Context) -> UITextView {
+        let textView = UITextView()
+        textView.delegate = context.coordinator
+        textView.font = UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        textView.autocorrectionType = .no
+        textView.autocapitalizationType = .none
+        textView.backgroundColor = .systemBackground
+        textView.textColor = .label
+        textView.isScrollEnabled = true
+        textView.alwaysBounceVertical = true
+        
+        // Apply syntax highlighting
+        context.coordinator.applySyntaxHighlighting(to: textView, fileExtension: fileExtension)
+        
+        return textView
+    }
+    
+    func updateUIView(_ textView: UITextView, context: Context) {
+        if textView.text != text {
+            let selectedRange = textView.selectedRange
+            textView.text = text
+            
+            // Reapply syntax highlighting
+            context.coordinator.applySyntaxHighlighting(to: textView, fileExtension: fileExtension)
+            
+            // Restore cursor position
+            textView.selectedRange = selectedRange
+        }
+        
+        textView.font = UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+    }
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text, onScrollOffsetChange: onScrollOffsetChange, onTextChange: onTextChange)
+    }
+    
+    class Coordinator: NSObject, UITextViewDelegate, UIScrollViewDelegate {
+        @Binding var text: String
+        let onScrollOffsetChange: (CGFloat) -> Void
+        let onTextChange: (String) -> Void
+        
+        init(text: Binding<String>, onScrollOffsetChange: @escaping (CGFloat) -> Void, onTextChange: @escaping (String) -> Void) {
+            _text = text
+            self.onScrollOffsetChange = onScrollOffsetChange
+            self.onTextChange = onTextChange
+        }
+        
+        func textViewDidChange(_ textView: UITextView) {
+            text = textView.text
+            onTextChange(textView.text)
+            applySyntaxHighlighting(to: textView, fileExtension: "x")
+        }
+        
+        func scrollViewDidScroll(_ scrollView: UIScrollView) {
+            onScrollOffsetChange(scrollView.contentOffset.y)
+        }
+        
+        func applySyntaxHighlighting(to textView: UITextView, fileExtension: String) {
+            let text = textView.text ?? ""
+            let attributedString = NSMutableAttributedString(string: text)
+            
+            // Base attributes
+            let baseFont = UIFont.monospacedSystemFont(ofSize: textView.font?.pointSize ?? 14, weight: .regular)
+            attributedString.addAttribute(.font, value: baseFont, range: NSRange(location: 0, length: text.count))
+            attributedString.addAttribute(.foregroundColor, value: UIColor.label, range: NSRange(location: 0, length: text.count))
+            
+            // Syntax highlighting patterns
+            highlightPattern(in: attributedString, pattern: "//.*", color: .systemGreen) // Comments
+            highlightPattern(in: attributedString, pattern: "/\\*[^*]*\\*+(?:[^/*][^*]*\\*+)*/", color: .systemGreen) // Multi-line comments
+            highlightPattern(in: attributedString, pattern: "#import\\s+[<\"].*?[>\"]", color: .systemPurple) // Imports
+            highlightPattern(in: attributedString, pattern: "#include\\s+[<\"].*?[>\"]", color: .systemPurple) // Includes
+            highlightPattern(in: attributedString, pattern: "@\".*?\"", color: .systemRed) // Obj-C strings
+            highlightPattern(in: attributedString, pattern: "\".*?\"", color: .systemRed) // Strings
+            highlightPattern(in: attributedString, pattern: "'.'", color: .systemRed) // Characters
+            highlightPattern(in: attributedString, pattern: "\\b(if|else|for|while|do|switch|case|break|continue|return|void|int|float|double|char|long|short|unsigned|signed|const|static|extern|typedef|struct|enum|union|class|interface|implementation|protocol|property|synthesize|dynamic|IBOutlet|IBAction|NS_ENUM|NS_OPTIONS)\\b", color: .systemPink) // Keywords
+            highlightPattern(in: attributedString, pattern: "\\b(NSString|NSArray|NSDictionary|NSObject|UIView|UIViewController|UIButton|UILabel|NSInteger|NSUInteger|CGFloat|BOOL|YES|NO|nil|NULL|true|false|self|super)\\b", color: .systemTeal) // Types
+            highlightPattern(in: attributedString, pattern: "@\\w+", color: .systemOrange) // Obj-C directives
+            highlightPattern(in: attributedString, pattern: "%\\w+", color: .systemIndigo) // Logos directives
+            highlightPattern(in: attributedString, pattern: "\\b\\d+\\b", color: .systemBlue) // Numbers
+            
+            textView.attributedText = attributedString
+        }
+        
+        private func highlightPattern(in attributedString: NSMutableAttributedString, pattern: String, color: UIColor) {
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return }
+            let range = NSRange(location: 0, length: attributedString.length)
+            let matches = regex.matches(in: attributedString.string, options: [], range: range)
+            
+            for match in matches {
+                attributedString.addAttribute(.foregroundColor, value: color, range: match.range)
+            }
+        }
     }
 }
 
