@@ -170,6 +170,9 @@ class ProjectManager: ObservableObject {
             TARGET := iphone:clang:16.5:14.0
             INSTALL_TARGET_PROCESSES = \(targetApp)
             
+            # Rootless jailbreak support
+            THEOS_PACKAGE_SCHEME = rootless
+            
             # Prevent sysctl calls by explicitly setting architecture
             SYSROOT = $(THEOS)/sdks/iPhoneOS16.5.sdk
             THEOS_PLATFORM_NAME = iphoneos

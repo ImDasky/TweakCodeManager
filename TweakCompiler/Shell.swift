@@ -75,6 +75,8 @@ func executeCommand(
         "THEOS_VENDOR_INCLUDE_PATH=\(theosPath)/vendor/include",
         "THEOS_DEVICE_IP=localhost",
         "THEOS_DEVICE_PORT=22",
+        // Rootless jailbreak support
+        "THEOS_PACKAGE_SCHEME=rootless",
         // Auto-detection overrides to prevent sysctl errors
         "SYSROOT=\(theosPath)/sdks/iPhoneOS16.5.sdk",
         "THEOS_PLATFORM_NAME=iphoneos",
