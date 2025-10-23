@@ -74,8 +74,7 @@ func executeCommand(
         "THEOS_VENDOR_LIBRARY_PATH=\(theosPath)/vendor/lib",
         "THEOS_VENDOR_INCLUDE_PATH=\(theosPath)/vendor/include",
         "THEOS_DEVICE_IP=localhost",
-        "THEOS_DEVICE_PORT=22",
-        "THEOS_PACKAGE_SCHEME=rootless"
+        "THEOS_DEVICE_PORT=22"
     ]
     
     let env: [UnsafeMutablePointer<CChar>?] = envStrings.map { $0.withCString(strdup) }

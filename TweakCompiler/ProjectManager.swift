@@ -171,9 +171,6 @@ class ProjectManager: ObservableObject {
             INSTALL_TARGET_PROCESSES = \(targetApp)
             THEOS_PACKAGE_SCHEME = rootless
             
-            # Set PATH for rootless jailbreak to find system commands
-            export PATH := /var/jb/usr/bin:/var/jb/bin:$(PATH)
-            
             include $(THEOS)/makefiles/common.mk
             
             TWEAK_NAME = \(name)
