@@ -50,27 +50,45 @@ class CompilationManager: ObservableObject {
             var needsFix = false
             var fixedContent = makefileContent
             
-            // Check for hardcoded Mac paths
-            if makefileContent.contains("/Users/") && (makefileContent.contains("/theos") || makefileContent.contains("THEOS")) {
+            // Check for hardcoded Mac paths (but not in variable assignments)
+            if makefileContent.contains("/Users/") && makefileContent.contains("/theos") {
                 DispatchQueue.main.async { [weak self] in
                     self?.addLog("⚠️ Detected hardcoded Theos paths, fixing...", type: .warning)
                 }
                 
-                // Replace hardcoded paths with $(THEOS)
-                fixedContent = fixedContent.replacingOccurrences(
-                    of: #"(/Users/[^/]+/theos)"#,
-                    with: "$(THEOS)",
-                    options: .regularExpression
-                )
+                // Process line by line to avoid replacing THEOS variable definitions
+                let lines = makefileContent.components(separatedBy: .newlines)
+                var fixedLines: [String] = []
                 
-                // Also handle potential spaces in paths
-                fixedContent = fixedContent.replacingOccurrences(
-                    of: #"/Users\s+/[^/]+/\s*theos"#,
-                    with: "$(THEOS)",
-                    options: .regularExpression
-                )
+                for line in lines {
+                    var fixedLine = line
+                    
+                    // Skip lines that are defining THEOS variable (export THEOS = ...)
+                    let trimmedLine = line.trimmingCharacters(in: .whitespaces)
+                    if trimmedLine.hasPrefix("export THEOS") || 
+                       trimmedLine.hasPrefix("THEOS =") ||
+                       trimmedLine.hasPrefix("THEOS=") {
+                        // For THEOS definitions, just remove them (we set it via environment)
+                        if trimmedLine.hasPrefix("export THEOS") || trimmedLine.hasPrefix("THEOS") {
+                            fixedLine = "# \(line) # Auto-commented: THEOS set via environment"
+                            needsFix = true
+                        }
+                    } else if line.contains("/Users/") && line.contains("/theos") {
+                        // Replace hardcoded paths in include statements or other uses
+                        fixedLine = line.replacingOccurrences(
+                            of: #"/Users/[^/\s]+/theos"#,
+                            with: "$(THEOS)",
+                            options: .regularExpression
+                        )
+                        needsFix = true
+                    }
+                    
+                    fixedLines.append(fixedLine)
+                }
                 
-                needsFix = true
+                if needsFix {
+                    fixedContent = fixedLines.joined(separator: "\n")
+                }
             }
             
             if needsFix {
