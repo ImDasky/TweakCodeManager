@@ -785,6 +785,12 @@ struct SyntaxHighlightedTextEditorWithLineNumbers: UIViewRepresentable {
         textView.textView.textColor = .label
         textView.fontSize = fontSize
         
+        // Set line number inset to match text view
+        textView.lineNumberView.textViewInset = textView.textView.textContainerInset.top
+        
+        // Store reference to parent view in coordinator
+        context.coordinator.lineNumberTextView = textView
+        
         // Apply syntax highlighting
         context.coordinator.applySyntaxHighlighting(to: textView.textView, fileExtension: fileExtension)
         
@@ -815,6 +821,7 @@ struct SyntaxHighlightedTextEditorWithLineNumbers: UIViewRepresentable {
     class Coordinator: NSObject, UITextViewDelegate {
         @Binding var text: String
         let onTextChange: (String) -> Void
+        weak var lineNumberTextView: LineNumberTextView?
         
         init(text: Binding<String>, onTextChange: @escaping (String) -> Void) {
             _text = text
@@ -827,9 +834,11 @@ struct SyntaxHighlightedTextEditorWithLineNumbers: UIViewRepresentable {
             applySyntaxHighlighting(to: textView, fileExtension: "x")
             
             // Update line numbers
-            if let lineNumberView = textView.superview as? LineNumberTextView {
-                lineNumberView.setNeedsLayout()
-            }
+            lineNumberTextView?.updateLineNumbers()
+        }
+        
+        func scrollViewDidScroll(_ scrollView: UIScrollView) {
+            lineNumberTextView?.lineNumberView.contentOffset = scrollView.contentOffset.y
         }
         
         func applySyntaxHighlighting(to textView: UITextView, fileExtension: String) {
@@ -872,10 +881,14 @@ struct SyntaxHighlightedTextEditorWithLineNumbers: UIViewRepresentable {
 
 // Custom UIView that combines a line number view with a text view
 class LineNumberTextView: UIView {
-    let lineNumberView = UIView()
-    let lineNumberLabel = UILabel()
+    let lineNumberView = LineNumberGutterView()
     let textView = UITextView()
-    var fontSize: CGFloat = 14
+    var fontSize: CGFloat = 14 {
+        didSet {
+            lineNumberView.fontSize = fontSize
+            textView.font = UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        }
+    }
     
     private let lineNumberWidth: CGFloat = 56
     
@@ -895,14 +908,6 @@ class LineNumberTextView: UIView {
         lineNumberView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(lineNumberView)
         
-        // Line number label
-        lineNumberLabel.font = UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
-        lineNumberLabel.textColor = .secondaryLabel
-        lineNumberLabel.textAlignment = .right
-        lineNumberLabel.numberOfLines = 0
-        lineNumberLabel.translatesAutoresizingMaskIntoConstraints = false
-        lineNumberView.addSubview(lineNumberLabel)
-        
         // Text view
         textView.translatesAutoresizingMaskIntoConstraints = false
         textView.textContainerInset = UIEdgeInsets(top: 8, left: 4, bottom: 8, right: 4)
@@ -915,37 +920,72 @@ class LineNumberTextView: UIView {
             lineNumberView.bottomAnchor.constraint(equalTo: bottomAnchor),
             lineNumberView.widthAnchor.constraint(equalToConstant: lineNumberWidth),
             
-            lineNumberLabel.leadingAnchor.constraint(equalTo: lineNumberView.leadingAnchor, constant: 4),
-            lineNumberLabel.trailingAnchor.constraint(equalTo: lineNumberView.trailingAnchor, constant: -8),
-            lineNumberLabel.topAnchor.constraint(equalTo: lineNumberView.topAnchor, constant: 8),
-            
             textView.leadingAnchor.constraint(equalTo: lineNumberView.trailingAnchor),
             textView.trailingAnchor.constraint(equalTo: trailingAnchor),
             textView.topAnchor.constraint(equalTo: topAnchor),
             textView.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
-        
-        // Observe scroll to update line numbers
-        textView.delegate = self
     }
     
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        updateLineNumbers()
-    }
-    
-    private func updateLineNumbers() {
-        let lineCount = max(1, textView.text.components(separatedBy: .newlines).count)
-        let numbers = (1...lineCount).map { "\($0)" }.joined(separator: "\n")
-        lineNumberLabel.text = numbers
-        lineNumberLabel.font = UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+    func updateLineNumbers() {
+        lineNumberView.lineCount = max(1, textView.text.components(separatedBy: .newlines).count)
+        lineNumberView.textViewInset = textView.textContainerInset.top
+        lineNumberView.setNeedsDisplay()
     }
 }
 
-extension LineNumberTextView: UITextViewDelegate {
-    func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        // Sync line numbers with text view scroll
-        lineNumberLabel.transform = CGAffineTransform(translationX: 0, y: -scrollView.contentOffset.y)
+// Custom view that draws line numbers
+class LineNumberGutterView: UIView {
+    var lineCount: Int = 1 {
+        didSet {
+            setNeedsDisplay()
+        }
+    }
+    
+    var fontSize: CGFloat = 14 {
+        didSet {
+            setNeedsDisplay()
+        }
+    }
+    
+    var textViewInset: CGFloat = 8
+    var contentOffset: CGFloat = 0 {
+        didSet {
+            setNeedsDisplay()
+        }
+    }
+    
+    override func draw(_ rect: CGRect) {
+        guard let context = UIGraphicsGetCurrentContext() else { return }
+        
+        // Clear background
+        UIColor.systemGray6.setFill()
+        context.fill(rect)
+        
+        // Calculate line height (same as UITextView)
+        let font = UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        let lineHeight = font.lineHeight
+        
+        // Draw line numbers
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: UIColor.secondaryLabel
+        ]
+        
+        // Start position matches text view's inset
+        let startY = textViewInset - contentOffset
+        
+        for lineNumber in 1...lineCount {
+            let text = "\(lineNumber)" as NSString
+            let y = startY + (CGFloat(lineNumber - 1) * lineHeight)
+            
+            // Only draw if visible
+            if y + lineHeight >= 0 && y <= rect.height {
+                let size = text.size(withAttributes: attributes)
+                let x = rect.width - size.width - 8
+                text.draw(at: CGPoint(x: x, y: y), withAttributes: attributes)
+            }
+        }
     }
 }
 
