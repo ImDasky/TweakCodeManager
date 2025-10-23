@@ -63,7 +63,7 @@ func executeCommand(
     // Set up environment
     let theosPath = "/var/theos"
     let envStrings = [
-        "PATH=/var/jb/usr/bin:/var/jb/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "PATH=/tmp:/var/jb/usr/bin:/var/jb/bin:/usr/bin:/bin:/usr/sbin:/sbin",
         "HOME=\(NSHomeDirectory())",
         "TMPDIR=\(NSTemporaryDirectory())",
         "THEOS=\(theosPath)",
