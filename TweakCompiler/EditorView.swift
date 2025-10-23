@@ -41,11 +41,11 @@ struct EditorView: View {
             .sheet(isPresented: $showingNewFolderSheet) {
                 if let project = projectManager.currentProject {
                     NewFolderSheet(projectPath: project.path)
-                }
-            }
-        }
-    }
-}
+                                        }
+                                    }
+                                }
+                            }
+                        }
 
 // Recursively list all files in project
 struct FileListView: View {
@@ -71,14 +71,14 @@ struct FileListView: View {
                         
                         Text(item.name)
                             .font(.headline)
-                        
-                        Spacer()
+                                    
+                                    Spacer()
                     }
                     .padding(.vertical, 4)
                     .contextMenu {
                         fileContextMenu(for: item)
-                    }
-                } else {
+                                    }
+                                } else {
                     // File row with navigation
                     NavigationLink(destination: FileEditorView(file: item, projectPath: projectPath)) {
                         HStack(spacing: 12) {
@@ -93,7 +93,7 @@ struct FileListView: View {
                                 
                                 Text(item.relativePath)
                                     .font(.caption)
-                                    .foregroundColor(.secondary)
+                                        .foregroundColor(.secondary)
                             }
                             
                             Spacer()
@@ -101,7 +101,7 @@ struct FileListView: View {
                             if let size = item.fileSizeString {
                                 Text(size)
                                     .font(.caption)
-                                    .foregroundColor(.secondary)
+                                        .foregroundColor(.secondary)
                             }
                         }
                         .padding(.vertical, 4)
@@ -784,6 +784,7 @@ struct SyntaxHighlightedTextEditorWithLineNumbers: UIViewRepresentable {
         textView.textView.backgroundColor = .systemBackground
         textView.textView.textColor = .label
         textView.fontSize = fontSize
+        textView.textView.text = text
         
         // Set line number inset to match text view
         textView.lineNumberView.textViewInset = textView.textView.textContainerInset.top
@@ -793,6 +794,9 @@ struct SyntaxHighlightedTextEditorWithLineNumbers: UIViewRepresentable {
         
         // Apply syntax highlighting
         context.coordinator.applySyntaxHighlighting(to: textView.textView, fileExtension: fileExtension)
+        
+        // Initialize line numbers
+        textView.updateLineNumbers()
         
         return textView
     }
@@ -805,12 +809,16 @@ struct SyntaxHighlightedTextEditorWithLineNumbers: UIViewRepresentable {
             // Reapply syntax highlighting
             context.coordinator.applySyntaxHighlighting(to: textView.textView, fileExtension: fileExtension)
             
+            // Update line numbers
+            textView.updateLineNumbers()
+            
             // Restore cursor position
             textView.textView.selectedRange = selectedRange
         }
         
         textView.textView.font = UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
         textView.fontSize = fontSize
+        textView.updateLineNumbers()
         textView.setNeedsLayout()
     }
     

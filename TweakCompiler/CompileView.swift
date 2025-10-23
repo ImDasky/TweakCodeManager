@@ -216,6 +216,23 @@ struct CompilationControlsView: View {
 struct CompilationLogView: View {
     @EnvironmentObject var compilationManager: CompilationManager
     
+    private func copyLog() {
+        let logText = compilationManager.compilationLog.map { entry in
+            let timestamp = ISO8601DateFormatter().string(from: entry.timestamp)
+            let typeIcon: String
+            switch entry.type {
+            case .info: typeIcon = "ℹ️"
+            case .success: typeIcon = "✅"
+            case .warning: typeIcon = "⚠️"
+            case .error: typeIcon = "❌"
+            case .output: typeIcon = "📝"
+            }
+            return "[\(timestamp)] \(typeIcon) \(entry.message)"
+        }.joined(separator: "\n")
+        
+        UIPasteboard.general.string = logText
+    }
+    
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -225,6 +242,11 @@ struct CompilationLogView: View {
                 Spacer()
                 
                 if !compilationManager.compilationLog.isEmpty {
+                    Button(action: copyLog) {
+                        Label("Copy", systemImage: "doc.on.doc")
+                    }
+                    .font(.caption)
+                    
                     Button("Clear") {
                         compilationManager.clearLog()
                     }
