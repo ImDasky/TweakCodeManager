@@ -63,7 +63,7 @@ func executeCommand(
     // Set up environment
     let theosPath = "/var/theos"
     let envStrings = [
-        "PATH=/var/jb/usr/bin:/var/jb/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "PATH=/var/jb/usr/bin:/var/jb/usr/sbin:/var/jb/bin:/var/jb/sbin:/usr/bin:/bin:/usr/sbin:/sbin",
         "HOME=\(NSHomeDirectory())",
         "TMPDIR=\(NSTemporaryDirectory())",
         "THEOS=\(theosPath)",
@@ -74,7 +74,8 @@ func executeCommand(
         "THEOS_VENDOR_LIBRARY_PATH=\(theosPath)/vendor/lib",
         "THEOS_VENDOR_INCLUDE_PATH=\(theosPath)/vendor/include",
         "THEOS_DEVICE_IP=localhost",
-        "THEOS_DEVICE_PORT=22"
+        "THEOS_DEVICE_PORT=22",
+        "THEOS_PACKAGE_SCHEME=rootless"
     ]
     
     let env: [UnsafeMutablePointer<CChar>?] = envStrings.map { $0.withCString(strdup) }
