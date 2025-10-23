@@ -241,7 +241,6 @@ struct CodeEditorView: View {
                     // Editor content
                     TextEditor(text: $content)
                         .font(.system(size: fontSize, design: .monospaced))
-                        .scrollContentBackground(.hidden)
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
                         .onChange(of: content) { _ in
