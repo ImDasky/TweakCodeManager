@@ -170,6 +170,10 @@ class ProjectManager: ObservableObject {
             TARGET := iphone:clang:16.5:14.0
             INSTALL_TARGET_PROCESSES = \(targetApp)
             
+            # Prevent sysctl calls by explicitly setting architecture
+            SYSROOT = $(THEOS)/sdks/iPhoneOS16.5.sdk
+            THEOS_PLATFORM_NAME = iphoneos
+            
             include $(THEOS)/makefiles/common.mk
             
             TWEAK_NAME = \(name)
@@ -178,7 +182,7 @@ class ProjectManager: ObservableObject {
             \(name)_CFLAGS = -fobjc-arc
             \(name)_FRAMEWORKS = UIKit Foundation
             
-            include $(THEOS_MAKE_PATH)/tweak.mk
+            include $(THEOS)/makefiles/tweak.mk
             """
             
             let tweak = """
