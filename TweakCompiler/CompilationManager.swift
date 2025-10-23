@@ -45,6 +45,48 @@ class CompilationManager: ObservableObject {
             return
         }
         
+        // Step 1.5: Check and fix Makefile if it has hardcoded paths
+        if let makefileContent = try? String(contentsOfFile: makefilePath, encoding: .utf8) {
+            var needsFix = false
+            var fixedContent = makefileContent
+            
+            // Check for hardcoded Mac paths
+            if makefileContent.contains("/Users/") && (makefileContent.contains("/theos") || makefileContent.contains("THEOS")) {
+                DispatchQueue.main.async { [weak self] in
+                    self?.addLog("⚠️ Detected hardcoded Theos paths, fixing...", type: .warning)
+                }
+                
+                // Replace hardcoded paths with $(THEOS)
+                fixedContent = fixedContent.replacingOccurrences(
+                    of: #"(/Users/[^/]+/theos)"#,
+                    with: "$(THEOS)",
+                    options: .regularExpression
+                )
+                
+                // Also handle potential spaces in paths
+                fixedContent = fixedContent.replacingOccurrences(
+                    of: #"/Users\s+/[^/]+/\s*theos"#,
+                    with: "$(THEOS)",
+                    options: .regularExpression
+                )
+                
+                needsFix = true
+            }
+            
+            if needsFix {
+                do {
+                    try fixedContent.write(toFile: makefilePath, atomically: true, encoding: .utf8)
+                    DispatchQueue.main.async { [weak self] in
+                        self?.addLog("✅ Fixed Makefile paths", type: .success)
+                    }
+                } catch {
+                    DispatchQueue.main.async { [weak self] in
+                        self?.addLog("⚠️ Could not fix Makefile: \(error.localizedDescription)", type: .warning)
+                    }
+                }
+            }
+        }
+        
         // Step 2: Create packages directory if it doesn't exist
         let packagesPath = "\(projectPath)/packages"
         if !FileManager.default.fileExists(atPath: packagesPath) {

@@ -61,11 +61,20 @@ func executeCommand(
     defer { for case let arg? in argv { free(arg) } }
     
     // Set up environment
+    let theosPath = "/var/jb/usr/share/theos"
     let envStrings = [
         "PATH=/var/jb/usr/bin:/var/jb/bin:/usr/bin:/bin:/usr/sbin:/sbin",
         "HOME=\(NSHomeDirectory())",
         "TMPDIR=\(NSTemporaryDirectory())",
-        "THEOS=/var/jb/usr/share/theos"
+        "THEOS=\(theosPath)",
+        "THEOS_MAKE_PATH=\(theosPath)/makefiles",
+        "THEOS_BIN_PATH=\(theosPath)/bin",
+        "THEOS_LIBRARY_PATH=\(theosPath)/lib",
+        "THEOS_INCLUDE_PATH=\(theosPath)/include",
+        "THEOS_VENDOR_LIBRARY_PATH=\(theosPath)/vendor/lib",
+        "THEOS_VENDOR_INCLUDE_PATH=\(theosPath)/vendor/include",
+        "THEOS_DEVICE_IP=localhost",
+        "THEOS_DEVICE_PORT=22"
     ]
     
     let env: [UnsafeMutablePointer<CChar>?] = envStrings.map { $0.withCString(strdup) }
