@@ -750,113 +750,74 @@ struct SearchReplaceBar: View {
     }
 }
 
-// Syntax highlighted editor with synchronized scrolling
+// Syntax highlighted editor with line numbers
 struct SyntaxHighlightedEditor: View {
     @Binding var content: String
     @Binding var fontSize: CGFloat
     let fileExtension: String
     let onTextChange: (String) -> Void
     
-    @State private var scrollOffset: CGFloat = 0
-    
     var body: some View {
-        GeometryReader { geometry in
-            HStack(alignment: .top, spacing: 0) {
-                // Line numbers with fixed width
-                VStack(alignment: .trailing, spacing: 0) {
-                    ForEach(lineNumbers, id: \.self) { lineNumber in
-                        Text("\(lineNumber)")
-                            .font(.system(size: fontSize, design: .monospaced))
-                            .foregroundColor(.secondary)
-                            .frame(height: lineHeight)
-                            .frame(minWidth: 40, alignment: .trailing)
-                            .padding(.horizontal, 8)
-                    }
-                }
-                .offset(y: -scrollOffset)
-                .frame(width: 56)
-                .background(Color(.systemGray6))
-                .clipped()
-                
-                // Editor content with syntax highlighting
-                SyntaxHighlightedTextEditor(
-                    text: $content,
-                    fontSize: fontSize,
-                    fileExtension: fileExtension,
-                    onScrollOffsetChange: { offset in
-                        scrollOffset = offset
-                    },
-                    onTextChange: onTextChange
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
+        SyntaxHighlightedTextEditorWithLineNumbers(
+            text: $content,
+            fontSize: fontSize,
+            fileExtension: fileExtension,
+            onTextChange: onTextChange
+        )
         .background(Color(.systemBackground))
-    }
-    
-    private var lineNumbers: [Int] {
-        let count = max(1, content.components(separatedBy: .newlines).count)
-        return Array(1...count)
-    }
-    
-    private var lineHeight: CGFloat {
-        // Approximate line height based on font size
-        return fontSize * 1.2
     }
 }
 
-// Custom text editor with syntax highlighting and scroll tracking
-struct SyntaxHighlightedTextEditor: UIViewRepresentable {
+// Custom text editor with built-in line numbers and syntax highlighting
+struct SyntaxHighlightedTextEditorWithLineNumbers: UIViewRepresentable {
     @Binding var text: String
     let fontSize: CGFloat
     let fileExtension: String
-    let onScrollOffsetChange: (CGFloat) -> Void
     let onTextChange: (String) -> Void
     
-    func makeUIView(context: Context) -> UITextView {
-        let textView = UITextView()
-        textView.delegate = context.coordinator
-        textView.font = UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
-        textView.autocorrectionType = .no
-        textView.autocapitalizationType = .none
-        textView.backgroundColor = .systemBackground
-        textView.textColor = .label
-        textView.isScrollEnabled = true
-        textView.alwaysBounceVertical = true
+    func makeUIView(context: Context) -> LineNumberTextView {
+        let textView = LineNumberTextView()
+        textView.textView.delegate = context.coordinator
+        textView.textView.font = UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        textView.textView.autocorrectionType = .no
+        textView.textView.autocapitalizationType = .none
+        textView.textView.backgroundColor = .systemBackground
+        textView.textView.textColor = .label
+        textView.fontSize = fontSize
         
         // Apply syntax highlighting
-        context.coordinator.applySyntaxHighlighting(to: textView, fileExtension: fileExtension)
+        context.coordinator.applySyntaxHighlighting(to: textView.textView, fileExtension: fileExtension)
         
         return textView
     }
     
-    func updateUIView(_ textView: UITextView, context: Context) {
-        if textView.text != text {
-            let selectedRange = textView.selectedRange
-            textView.text = text
+    func updateUIView(_ textView: LineNumberTextView, context: Context) {
+        if textView.textView.text != text {
+            let selectedRange = textView.textView.selectedRange
+            textView.textView.text = text
             
             // Reapply syntax highlighting
-            context.coordinator.applySyntaxHighlighting(to: textView, fileExtension: fileExtension)
+            context.coordinator.applySyntaxHighlighting(to: textView.textView, fileExtension: fileExtension)
             
             // Restore cursor position
-            textView.selectedRange = selectedRange
+            textView.textView.selectedRange = selectedRange
         }
         
-        textView.font = UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        textView.textView.font = UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        textView.fontSize = fontSize
+        textView.setNeedsLayout()
     }
     
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text, onScrollOffsetChange: onScrollOffsetChange, onTextChange: onTextChange)
+        Coordinator(text: $text, onTextChange: onTextChange)
     }
     
-    class Coordinator: NSObject, UITextViewDelegate, UIScrollViewDelegate {
+    class Coordinator: NSObject, UITextViewDelegate {
         @Binding var text: String
-        let onScrollOffsetChange: (CGFloat) -> Void
         let onTextChange: (String) -> Void
         
-        init(text: Binding<String>, onScrollOffsetChange: @escaping (CGFloat) -> Void, onTextChange: @escaping (String) -> Void) {
+        init(text: Binding<String>, onTextChange: @escaping (String) -> Void) {
             _text = text
-            self.onScrollOffsetChange = onScrollOffsetChange
             self.onTextChange = onTextChange
         }
         
@@ -864,10 +825,11 @@ struct SyntaxHighlightedTextEditor: UIViewRepresentable {
             text = textView.text
             onTextChange(textView.text)
             applySyntaxHighlighting(to: textView, fileExtension: "x")
-        }
-        
-        func scrollViewDidScroll(_ scrollView: UIScrollView) {
-            onScrollOffsetChange(scrollView.contentOffset.y)
+            
+            // Update line numbers
+            if let lineNumberView = textView.superview as? LineNumberTextView {
+                lineNumberView.setNeedsLayout()
+            }
         }
         
         func applySyntaxHighlighting(to textView: UITextView, fileExtension: String) {
@@ -905,6 +867,85 @@ struct SyntaxHighlightedTextEditor: UIViewRepresentable {
                 attributedString.addAttribute(.foregroundColor, value: color, range: match.range)
             }
         }
+    }
+}
+
+// Custom UIView that combines a line number view with a text view
+class LineNumberTextView: UIView {
+    let lineNumberView = UIView()
+    let lineNumberLabel = UILabel()
+    let textView = UITextView()
+    var fontSize: CGFloat = 14
+    
+    private let lineNumberWidth: CGFloat = 56
+    
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setupViews()
+    }
+    
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setupViews()
+    }
+    
+    private func setupViews() {
+        // Line number view
+        lineNumberView.backgroundColor = .systemGray6
+        lineNumberView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(lineNumberView)
+        
+        // Line number label
+        lineNumberLabel.font = UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        lineNumberLabel.textColor = .secondaryLabel
+        lineNumberLabel.textAlignment = .right
+        lineNumberLabel.numberOfLines = 0
+        lineNumberLabel.translatesAutoresizingMaskIntoConstraints = false
+        lineNumberView.addSubview(lineNumberLabel)
+        
+        // Text view
+        textView.translatesAutoresizingMaskIntoConstraints = false
+        textView.textContainerInset = UIEdgeInsets(top: 8, left: 4, bottom: 8, right: 4)
+        addSubview(textView)
+        
+        // Constraints
+        NSLayoutConstraint.activate([
+            lineNumberView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            lineNumberView.topAnchor.constraint(equalTo: topAnchor),
+            lineNumberView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            lineNumberView.widthAnchor.constraint(equalToConstant: lineNumberWidth),
+            
+            lineNumberLabel.leadingAnchor.constraint(equalTo: lineNumberView.leadingAnchor, constant: 4),
+            lineNumberLabel.trailingAnchor.constraint(equalTo: lineNumberView.trailingAnchor, constant: -8),
+            lineNumberLabel.topAnchor.constraint(equalTo: lineNumberView.topAnchor, constant: 8),
+            
+            textView.leadingAnchor.constraint(equalTo: lineNumberView.trailingAnchor),
+            textView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            textView.topAnchor.constraint(equalTo: topAnchor),
+            textView.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+        
+        // Observe scroll to update line numbers
+        textView.delegate = self
+    }
+    
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        updateLineNumbers()
+    }
+    
+    private func updateLineNumbers() {
+        let lineCount = max(1, textView.text.components(separatedBy: .newlines).count)
+        let numbers = (1...lineCount).map { "\($0)" }.joined(separator: "\n")
+        lineNumberLabel.text = numbers
+        lineNumberLabel.font = UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+    }
+}
+
+extension LineNumberTextView: UITextViewDelegate {
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        // Sync line numbers with text view scroll
+        lineNumberLabel.transform = CGAffineTransform(translationX: 0, y: -scrollView.contentOffset.y)
     }
 }
 
