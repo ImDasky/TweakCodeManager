@@ -169,13 +169,10 @@ class ProjectManager: ObservableObject {
             ARCHS = arm64 arm64e
             TARGET := iphone:clang:16.5:14.0
             INSTALL_TARGET_PROCESSES = \(targetApp)
-            
-            # Rootless jailbreak support
             THEOS_PACKAGE_SCHEME = rootless
             
-            # Prevent sysctl calls by explicitly setting architecture
-            SYSROOT = $(THEOS)/sdks/iPhoneOS16.5.sdk
-            THEOS_PLATFORM_NAME = iphoneos
+            # Set PATH for rootless jailbreak to find system commands
+            export PATH := /var/jb/usr/bin:/var/jb/bin:$(PATH)
             
             include $(THEOS)/makefiles/common.mk
             
@@ -185,7 +182,7 @@ class ProjectManager: ObservableObject {
             \(name)_CFLAGS = -fobjc-arc
             \(name)_FRAMEWORKS = UIKit Foundation
             
-            include $(THEOS)/makefiles/tweak.mk
+            include $(THEOS_MAKE_PATH)/tweak.mk
             """
             
             let tweak = """

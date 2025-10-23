@@ -63,7 +63,7 @@ func executeCommand(
     // Set up environment
     let theosPath = "/var/theos"
     let envStrings = [
-        "PATH=/tmp:/var/jb/usr/bin:/var/jb/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "PATH=/var/jb/usr/bin:/var/jb/bin:/usr/bin:/bin:/usr/sbin:/sbin",
         "HOME=\(NSHomeDirectory())",
         "TMPDIR=\(NSTemporaryDirectory())",
         "THEOS=\(theosPath)",
@@ -75,12 +75,7 @@ func executeCommand(
         "THEOS_VENDOR_INCLUDE_PATH=\(theosPath)/vendor/include",
         "THEOS_DEVICE_IP=localhost",
         "THEOS_DEVICE_PORT=22",
-        // Rootless jailbreak support
-        "THEOS_PACKAGE_SCHEME=rootless",
-        // Auto-detection overrides to prevent sysctl errors
-        "SYSROOT=\(theosPath)/sdks/iPhoneOS16.5.sdk",
-        "THEOS_PLATFORM_NAME=iphoneos",
-        "ARCHS=arm64 arm64e"
+        "THEOS_PACKAGE_SCHEME=rootless"
     ]
     
     let env: [UnsafeMutablePointer<CChar>?] = envStrings.map { $0.withCString(strdup) }

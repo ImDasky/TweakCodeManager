@@ -30,9 +30,6 @@ class CompilationManager: ObservableObject {
     private func runTheosCompilation(_ project: TweakProject) {
         let projectPath = project.path.path
         
-        // Step 0: Create fake sysctl to prevent errors
-        createFakeSysctl()
-        
         // Step 1: Check if Makefile exists
         DispatchQueue.main.async { [weak self] in
             self?.addLog("Checking project structure...", type: .output)
@@ -228,37 +225,6 @@ class CompilationManager: ObservableObject {
     
     func clearLog() {
         compilationLog.removeAll()
-    }
-    
-    private func createFakeSysctl() {
-        // Create a fake sysctl script in /tmp that returns architecture info
-        // This prevents "bash: sysctl: command not found" errors during Theos compilation
-        let sysctlPath = "/tmp/sysctl"
-        let sysctlScript = """
-        #!/var/jb/usr/bin/bash
-        # Fake sysctl for Theos compilation on iOS
-        case "$1" in
-            hw.machine)
-                echo "arm64"
-                ;;
-            hw.ncpu)
-                echo "6"
-                ;;
-            *)
-                echo "unknown"
-                ;;
-        esac
-        exit 0
-        """
-        
-        do {
-            try sysctlScript.write(toFile: sysctlPath, atomically: true, encoding: .utf8)
-            // Make it executable
-            let _ = executeCommand("/var/jb/usr/bin/chmod", arguments: ["+x", sysctlPath])
-        } catch {
-            // Silently fail - environment variables should still work
-            print("Could not create fake sysctl: \(error)")
-        }
     }
     
     func stopCompilation() {
