@@ -254,6 +254,132 @@ class ProjectManager: ObservableObject {
         }
     }
     
+    func importProject(from zipURL: URL) throws -> (project: TweakProject?, message: String) {
+        logger.info("Importing project from \(zipURL.path, privacy: .public)")
+        ilog("Import started: \(zipURL.lastPathComponent)")
+        
+        // Create temporary directory for extraction
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+        
+        // Extract zip file using unzip command
+        let zipPath = zipURL.path
+        let (exitCode, output, error) = executeCommand("unzip", arguments: ["-q", zipPath, "-d", tempDir.path])
+        
+        guard exitCode == 0 else {
+            ilog("Unzip failed: \(error)")
+            throw NSError(domain: "TweakCompiler", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to extract zip: \(error)"])
+        }
+        
+        ilog("Extracted to temp directory")
+        
+        // Find the root project directory (may be nested)
+        let extractedContents = try FileManager.default.contentsOfDirectory(at: tempDir, includingPropertiesForKeys: nil)
+        
+        // Look for Makefile to identify project root
+        var projectRoot: URL?
+        func findProjectRoot(in directory: URL, depth: Int = 0) throws -> URL? {
+            if depth > 3 { return nil } // Limit search depth
+            
+            let makefilePath = directory.appendingPathComponent("Makefile")
+            if FileManager.default.fileExists(atPath: makefilePath.path) {
+                return directory
+            }
+            
+            // Check subdirectories
+            let contents = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.isDirectoryKey])
+            for item in contents {
+                var isDirectory: ObjCBool = false
+                if FileManager.default.fileExists(atPath: item.path, isDirectory: &isDirectory), isDirectory.boolValue {
+                    if let found = try findProjectRoot(in: item, depth: depth + 1) {
+                        return found
+                    }
+                }
+            }
+            return nil
+        }
+        
+        projectRoot = try findProjectRoot(in: tempDir)
+        
+        guard let projectRoot = projectRoot else {
+            ilog("No Makefile found in zip")
+            throw NSError(domain: "TweakCompiler", code: 2, userInfo: [NSLocalizedDescriptionKey: "No Makefile found. This doesn't appear to be a valid tweak project."])
+        }
+        
+        ilog("Found project root with Makefile")
+        
+        // Extract project info from control file or Makefile
+        var projectName = "Imported Tweak"
+        var bundleId = "com.unknown.tweak"
+        var targetApp = "com.apple.springboard"
+        
+        // Try to read control file
+        let controlPath = projectRoot.appendingPathComponent("control")
+        if FileManager.default.fileExists(atPath: controlPath.path),
+           let controlContent = try? String(contentsOf: controlPath, encoding: .utf8) {
+            // Parse control file
+            for line in controlContent.components(separatedBy: .newlines) {
+                if line.hasPrefix("Package:") {
+                    bundleId = line.replacingOccurrences(of: "Package:", with: "").trimmingCharacters(in: .whitespaces)
+                } else if line.hasPrefix("Name:") {
+                    projectName = line.replacingOccurrences(of: "Name:", with: "").trimmingCharacters(in: .whitespaces)
+                }
+            }
+            ilog("Parsed control file: name=\(projectName), bundle=\(bundleId)")
+        }
+        
+        // Try to read plist for target app
+        if let plistFiles = try? FileManager.default.contentsOfDirectory(at: projectRoot, includingPropertiesForKeys: nil)
+            .filter({ $0.pathExtension == "plist" && $0.lastPathComponent != "entitlements.plist" }),
+           let firstPlist = plistFiles.first,
+           let plistData = try? Data(contentsOf: firstPlist),
+           let plist = try? PropertyListSerialization.propertyList(from: plistData, format: nil) as? [String: Any],
+           let filter = plist["Filter"] as? [String: Any],
+           let bundles = filter["Bundles"] as? [String],
+           let firstBundle = bundles.first {
+            targetApp = firstBundle
+            ilog("Found target app: \(targetApp)")
+        }
+        
+        // Create new project directory
+        let projectId = UUID()
+        let destinationDir = projectsPath.appendingPathComponent(projectId.uuidString)
+        
+        // Copy project to destination
+        try FileManager.default.copyItem(at: projectRoot, to: destinationDir)
+        try FileManager.default.setAttributes([.protectionKey: FileProtectionType.none], ofItemAtPath: destinationDir.path)
+        
+        ilog("Copied to projects directory")
+        
+        // Create packages directory if it doesn't exist
+        let packagesDir = destinationDir.appendingPathComponent("packages")
+        if !FileManager.default.fileExists(atPath: packagesDir.path) {
+            try FileManager.default.createDirectory(at: packagesDir, withIntermediateDirectories: true)
+            try FileManager.default.setAttributes([.protectionKey: FileProtectionType.none], ofItemAtPath: packagesDir.path)
+        }
+        
+        // Create project.json
+        let project = TweakProject(name: projectName, bundleId: bundleId, targetApp: targetApp, path: destinationDir)
+        if let data = try? JSONEncoder().encode(project) {
+            let infoPath = destinationDir.appendingPathComponent("project.json")
+            FileManager.default.createFile(atPath: infoPath.path, contents: data, attributes: [.protectionKey: FileProtectionType.none])
+            ilog("Created project.json")
+        }
+        
+        // Reload projects
+        DispatchQueue.main.async {
+            self.projects.append(project)
+            self.logger.info("Imported project: \(project.name, privacy: .public)")
+            self.ilog("✅ Import complete: \(project.name)")
+        }
+        
+        return (project, "Successfully imported \(projectName)")
+    }
+    
     func deleteProject(_ project: TweakProject) {
         do {
             try FileManager.default.removeItem(at: project.path)

@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ProjectsView: View {
     @EnvironmentObject var projectManager: ProjectManager
@@ -9,6 +10,7 @@ struct ProjectsView: View {
     @State private var newTargetApp = "com.apple.springboard"
     @State private var showErrorAlert = false
     @State private var errorMessage = ""
+    @State private var showingImportPicker = false
     
 	var body: some View {
 		NavigationView {
@@ -16,8 +18,18 @@ struct ProjectsView: View {
 			.navigationTitle("Tweak Projects")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        showingNewProject = true
+                    Menu {
+                        Button {
+                            showingNewProject = true
+                        } label: {
+                            Label("New Project", systemImage: "plus.circle")
+                        }
+                        
+                        Button {
+                            showingImportPicker = true
+                        } label: {
+                            Label("Import from Zip", systemImage: "square.and.arrow.down")
+                        }
                     } label: {
                         Image(systemName: "plus")
                     }
@@ -57,6 +69,11 @@ struct ProjectsView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(errorMessage)
+        }
+        .sheet(isPresented: $showingImportPicker) {
+            DocumentPicker(allowedTypes: ["public.zip-archive"]) { url in
+                importProject(from: url)
+            }
         }
     }
     
@@ -104,6 +121,21 @@ struct ProjectsView: View {
         for index in offsets {
             let project = projectManager.projects[index]
             projectManager.deleteProject(project)
+        }
+    }
+    
+    private func importProject(from url: URL) {
+        showingImportPicker = false
+        
+        do {
+            let result = try projectManager.importProject(from: url)
+            if let project = result.project {
+                selectedProject = project
+                projectManager.openProject(project)
+            }
+        } catch {
+            errorMessage = "Failed to import project: \(error.localizedDescription)"
+            showErrorAlert = true
         }
     }
     
@@ -173,6 +205,38 @@ struct ProjectRowView: View {
             }
         }
         .padding(.vertical, 4)
+    }
+}
+
+// UIKit Document Picker wrapper
+struct DocumentPicker: UIViewControllerRepresentable {
+    let allowedTypes: [String]
+    let onPick: (URL) -> Void
+    
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.zip])
+        picker.delegate = context.coordinator
+        picker.allowsMultipleSelection = false
+        return picker
+    }
+    
+    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onPick: onPick)
+    }
+    
+    class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let onPick: (URL) -> Void
+        
+        init(onPick: @escaping (URL) -> Void) {
+            self.onPick = onPick
+        }
+        
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            guard let url = urls.first else { return }
+            onPick(url)
+        }
     }
 }
 
