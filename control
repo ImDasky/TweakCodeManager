@@ -1,0 +1,10 @@
+Package: com.tweakcompiler.tweakcompiler
+Name: TweakCompiler
+Depends: mobilesubstrate, firmware (>= 15.0)
+Version: 1.0.0
+Architecture: iphoneos-arm64
+Description: A powerful iOS tweak development environment
+Maintainer: TweakCompiler Team
+Author: TweakCompiler Team
+Section: Development
+Icon: file:///Applications/TweakCompiler.app/AppIcon60x60@2x.png
