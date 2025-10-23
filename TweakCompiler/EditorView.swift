@@ -1,7 +1,10 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct EditorView: View {
     @EnvironmentObject var projectManager: ProjectManager
+    @State private var showingNewFileSheet = false
+    @State private var showingNewFolderSheet = false
     
     var body: some View {
         NavigationView {
@@ -9,91 +12,534 @@ struct EditorView: View {
                 if projectManager.currentProject == nil {
                     NoProjectSelectedView()
                 } else {
-                    List {
-                        ForEach(projectFiles, id: \.name) { file in
-                            NavigationLink(destination: FileEditorView(file: file, projectPath: projectManager.currentProject!.path)) {
-                                HStack(spacing: 12) {
-                                    Image(systemName: file.type.icon)
-                                        .foregroundColor(file.type.color)
-                                        .font(.title2)
-                                        .frame(width: 40)
-                                    
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(file.name)
-                                            .font(.headline)
-                                        
-                                        Text(file.type.rawValue)
-                                            .font(.caption)
-                                            .foregroundColor(.secondary)
-                                    }
-                                    
-                                    Spacer()
-                                    
-                                    if let size = fileSize(for: file) {
-                                        Text(size)
-                                            .font(.caption)
-                                            .foregroundColor(.secondary)
-                                    }
-                                }
-                                .padding(.vertical, 4)
-                            }
-                        }
-                    }
+                    FileListView(projectPath: projectManager.currentProject!.path)
                 }
             }
             .navigationTitle(projectManager.currentProject?.name ?? "Files")
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    if projectManager.currentProject != nil {
+                        Menu {
+                            Button(action: { showingNewFileSheet = true }) {
+                                Label("New File", systemImage: "doc.badge.plus")
+                            }
+                            
+                            Button(action: { showingNewFolderSheet = true }) {
+                                Label("New Folder", systemImage: "folder.badge.plus")
+                            }
+                        } label: {
+                            Image(systemName: "plus.circle")
+                        }
+                    }
+                }
+                
                 ToolbarItem(placement: .navigationBarTrailing) {
                     if projectManager.currentProject != nil {
-                        Button("Close Project") {
+                        Button("Close") {
                             projectManager.currentProject = nil
                         }
                     }
                 }
             }
+            .sheet(isPresented: $showingNewFileSheet) {
+                if let project = projectManager.currentProject {
+                    NewFileSheet(projectPath: project.path)
+                }
+            }
+            .sheet(isPresented: $showingNewFolderSheet) {
+                if let project = projectManager.currentProject {
+                    NewFolderSheet(projectPath: project.path)
+                }
+            }
         }
-    }
-    
-    private var projectFiles: [ProjectFile] {
-        guard let project = projectManager.currentProject else { return [] }
-        
-        return [
-            ProjectFile(name: "Makefile", type: .makefile, path: project.path.appendingPathComponent("Makefile")),
-            ProjectFile(name: "Tweak.x", type: .source, path: project.path.appendingPathComponent("Tweak.x")),
-            ProjectFile(name: "control", type: .control, path: project.path.appendingPathComponent("control")),
-            ProjectFile(name: "\(project.name).plist", type: .plist, path: project.path.appendingPathComponent("\(project.name).plist"))
-        ].filter { FileManager.default.fileExists(atPath: $0.path.path) }
-    }
-    
-    private func fileSize(for file: ProjectFile) -> String? {
-        guard let attrs = try? FileManager.default.attributesOfItem(atPath: file.path.path),
-              let size = attrs[.size] as? Int64 else {
-            return nil
-        }
-        
-        let formatter = ByteCountFormatter()
-        formatter.countStyle = .file
-        return formatter.string(fromByteCount: size)
     }
 }
 
-// Full-screen file editor
+// Recursively list all files in project
+struct FileListView: View {
+    let projectPath: URL
+    @State private var fileItems: [FileItem] = []
+    @State private var selectedItem: FileItem?
+    @State private var showingDeleteAlert = false
+    @State private var itemToDelete: FileItem?
+    @State private var showingRenameAlert = false
+    @State private var itemToRename: FileItem?
+    @State private var newName = ""
+    
+    var body: some View {
+        List {
+            ForEach(fileItems, id: \.id) { item in
+                if item.isDirectory {
+                    // Folder row
+                    HStack(spacing: 12) {
+                        Image(systemName: "folder.fill")
+                            .foregroundColor(.blue)
+                            .font(.title2)
+                            .frame(width: 40)
+                        
+                        Text(item.name)
+                            .font(.headline)
+                        
+                        Spacer()
+                    }
+                    .padding(.vertical, 4)
+                    .contextMenu {
+                        fileContextMenu(for: item)
+                    }
+                } else {
+                    // File row with navigation
+                    NavigationLink(destination: FileEditorView(file: item, projectPath: projectPath)) {
+                        HStack(spacing: 12) {
+                            Image(systemName: item.icon)
+                                .foregroundColor(item.color)
+                                .font(.title2)
+                                .frame(width: 40)
+                            
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(item.name)
+                                    .font(.headline)
+                                
+                                Text(item.relativePath)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            
+                            Spacer()
+                            
+                            if let size = item.fileSizeString {
+                                Text(size)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    .contextMenu {
+                        fileContextMenu(for: item)
+                    }
+                }
+            }
+        }
+        .onAppear {
+            loadFiles()
+        }
+        .alert("Delete \(itemToDelete?.name ?? "Item")?", isPresented: $showingDeleteAlert) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive) {
+                if let item = itemToDelete {
+                    deleteItem(item)
+                }
+            }
+        } message: {
+            Text("This action cannot be undone.")
+        }
+        .alert("Rename", isPresented: $showingRenameAlert) {
+            TextField("New name", text: $newName)
+            Button("Cancel", role: .cancel) { }
+            Button("Rename") {
+                if let item = itemToRename {
+                    renameItem(item, to: newName)
+                }
+            }
+        } message: {
+            Text("Enter a new name for \(itemToRename?.name ?? "this item")")
+        }
+    }
+    
+    @ViewBuilder
+    private func fileContextMenu(for item: FileItem) -> some View {
+        if !item.isDirectory {
+            Button(action: { duplicateFile(item) }) {
+                Label("Duplicate", systemImage: "doc.on.doc")
+            }
+            
+            Button(action: { shareFile(item) }) {
+                Label("Share", systemImage: "square.and.arrow.up")
+            }
+            
+            Divider()
+        }
+        
+        Button(action: {
+            itemToRename = item
+            newName = item.name
+            showingRenameAlert = true
+        }) {
+            Label("Rename", systemImage: "pencil")
+        }
+        
+        Button(role: .destructive, action: {
+            itemToDelete = item
+            showingDeleteAlert = true
+        }) {
+            Label("Delete", systemImage: "trash")
+        }
+    }
+    
+    private func loadFiles() {
+        fileItems = scanDirectory(at: projectPath, relativeTo: projectPath)
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+    
+    private func scanDirectory(at url: URL, relativeTo rootURL: URL) -> [FileItem] {
+        var items: [FileItem] = []
+        
+        guard let enumerator = FileManager.default.enumerator(
+            at: url,
+            includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey],
+            options: [.skipsHiddenFiles]
+        ) else { return items }
+        
+        for case let fileURL as URL in enumerator {
+            // Skip packages directory
+            if fileURL.lastPathComponent == "packages" {
+                enumerator.skipDescendants()
+                continue
+            }
+            
+            let relativePath = fileURL.path.replacingOccurrences(of: rootURL.path + "/", with: "")
+            
+            if let resourceValues = try? fileURL.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey]) {
+                let isDirectory = resourceValues.isDirectory ?? false
+                let fileSize = resourceValues.fileSize
+                
+                let item = FileItem(
+                    name: fileURL.lastPathComponent,
+                    path: fileURL,
+                    relativePath: relativePath,
+                    isDirectory: isDirectory,
+                    fileSize: fileSize
+                )
+                items.append(item)
+            }
+        }
+        
+        return items
+    }
+    
+    private func deleteItem(_ item: FileItem) {
+        do {
+            try FileManager.default.removeItem(at: item.path)
+            loadFiles()
+        } catch {
+            print("Error deleting item: \(error)")
+        }
+    }
+    
+    private func renameItem(_ item: FileItem, to newName: String) {
+        let newPath = item.path.deletingLastPathComponent().appendingPathComponent(newName)
+        do {
+            try FileManager.default.moveItem(at: item.path, to: newPath)
+            loadFiles()
+        } catch {
+            print("Error renaming item: \(error)")
+        }
+    }
+    
+    private func duplicateFile(_ item: FileItem) {
+        let fileExtension = item.path.pathExtension
+        let nameWithoutExt = item.path.deletingPathExtension().lastPathComponent
+        let newName = "\(nameWithoutExt) copy.\(fileExtension)"
+        let newPath = item.path.deletingLastPathComponent().appendingPathComponent(newName)
+        
+        do {
+            try FileManager.default.copyItem(at: item.path, to: newPath)
+            loadFiles()
+        } catch {
+            print("Error duplicating file: \(error)")
+        }
+    }
+    
+    private func shareFile(_ item: FileItem) {
+        let activityVC = UIActivityViewController(activityItems: [item.path], applicationActivities: nil)
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+           let rootVC = windowScene.windows.first?.rootViewController {
+            rootVC.present(activityVC, animated: true)
+        }
+    }
+}
+
+// File item model
+struct FileItem: Identifiable {
+    let id = UUID()
+    let name: String
+    let path: URL
+    let relativePath: String
+    let isDirectory: Bool
+    let fileSize: Int?
+    
+    var icon: String {
+        if isDirectory { return "folder.fill" }
+        
+        let ext = path.pathExtension.lowercased()
+        switch ext {
+        case "x", "m", "mm", "c", "cpp", "h", "hpp", "swift":
+            return "doc.text.fill"
+        case "plist":
+            return "doc.badge.gearshape"
+        case "json":
+            return "doc.badge.gearshape.fill"
+        case "md", "txt":
+            return "doc.plaintext"
+        case "png", "jpg", "jpeg":
+            return "photo"
+        default:
+            if name == "Makefile" || name == "makefile" {
+                return "hammer.fill"
+            } else if name == "control" {
+                return "list.bullet.rectangle"
+            }
+            return "doc"
+        }
+    }
+    
+    var color: Color {
+        if isDirectory { return .blue }
+        
+        let ext = path.pathExtension.lowercased()
+        switch ext {
+        case "x", "m", "mm", "c", "cpp":
+            return .blue
+        case "h", "hpp":
+            return .purple
+        case "swift":
+            return .orange
+        case "plist", "json":
+            return .green
+        default:
+            if name == "Makefile" || name == "makefile" {
+                return .orange
+            } else if name == "control" {
+                return .green
+            }
+            return .gray
+        }
+    }
+    
+    var fileSizeString: String? {
+        guard let size = fileSize else { return nil }
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: Int64(size))
+    }
+}
+
+// New file sheet
+struct NewFileSheet: View {
+    let projectPath: URL
+    @State private var fileName = ""
+    @State private var selectedTemplate = FileTemplate.empty
+    @Environment(\.dismiss) private var dismiss
+    
+    enum FileTemplate: String, CaseIterable {
+        case empty = "Empty File"
+        case objcHeader = "Objective-C Header (.h)"
+        case objcSource = "Objective-C Source (.m)"
+        case tweakFile = "Tweak File (.x)"
+        case cSource = "C Source (.c)"
+        case cppSource = "C++ Source (.cpp)"
+        
+        var fileExtension: String {
+            switch self {
+            case .empty: return "txt"
+            case .objcHeader: return "h"
+            case .objcSource: return "m"
+            case .tweakFile: return "x"
+            case .cSource: return "c"
+            case .cppSource: return "cpp"
+            }
+        }
+        
+        var template: String {
+            switch self {
+            case .empty:
+                return ""
+            case .objcHeader:
+                return """
+                #import <Foundation/Foundation.h>
+                
+                @interface MyClass : NSObject
+                
+                @end
+                """
+            case .objcSource:
+                return """
+                #import "MyClass.h"
+                
+                @implementation MyClass
+                
+                @end
+                """
+            case .tweakFile:
+                return """
+                #import <Foundation/Foundation.h>
+                #import <UIKit/UIKit.h>
+                
+                %hook ClassName
+                
+                // Your hooks here
+                
+                %end
+                """
+            case .cSource:
+                return """
+                #include <stdio.h>
+                
+                int main() {
+                    return 0;
+                }
+                """
+            case .cppSource:
+                return """
+                #include <iostream>
+                
+                int main() {
+                    return 0;
+                }
+                """
+            }
+        }
+    }
+    
+    var body: some View {
+        NavigationView {
+            Form {
+                Section("File Information") {
+                    TextField("File name", text: $fileName)
+                    
+                    Picker("Template", selection: $selectedTemplate) {
+                        ForEach(FileTemplate.allCases, id: \.self) { template in
+                            Text(template.rawValue).tag(template)
+                        }
+                    }
+                }
+                
+                Section("Preview") {
+                    Text(fullFileName)
+                        .font(.system(.body, design: .monospaced))
+                        .foregroundColor(.secondary)
+                }
+            }
+            .navigationTitle("New File")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Create") {
+                        createFile()
+                    }
+                    .disabled(fileName.isEmpty)
+                }
+            }
+        }
+    }
+    
+    private var fullFileName: String {
+        if fileName.isEmpty {
+            return "untitled.\(selectedTemplate.fileExtension)"
+        }
+        
+        // If user already added extension, use it
+        if fileName.contains(".") {
+            return fileName
+        }
+        
+        return "\(fileName).\(selectedTemplate.fileExtension)"
+    }
+    
+    private func createFile() {
+        let filePath = projectPath.appendingPathComponent(fullFileName)
+        
+        do {
+            let content = selectedTemplate.template
+            try content.write(to: filePath, atomically: true, encoding: .utf8)
+            dismiss()
+        } catch {
+            print("Error creating file: \(error)")
+        }
+    }
+}
+
+// New folder sheet
+struct NewFolderSheet: View {
+    let projectPath: URL
+    @State private var folderName = ""
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        NavigationView {
+            Form {
+                Section("Folder Information") {
+                    TextField("Folder name", text: $folderName)
+                }
+            }
+            .navigationTitle("New Folder")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Create") {
+                        createFolder()
+                    }
+                    .disabled(folderName.isEmpty)
+                }
+            }
+        }
+    }
+    
+    private func createFolder() {
+        let folderPath = projectPath.appendingPathComponent(folderName)
+        
+        do {
+            try FileManager.default.createDirectory(at: folderPath, withIntermediateDirectories: true)
+            dismiss()
+        } catch {
+            print("Error creating folder: \(error)")
+        }
+    }
+}
+
+// Enhanced file editor with search/replace, undo/redo, and syntax highlighting
 struct FileEditorView: View {
-    let file: ProjectFile
+    let file: FileItem
     let projectPath: URL
     
     @State private var content = ""
+    @State private var originalContent = ""
     @State private var isEditing = false
     @State private var fontSize: CGFloat = 14
     @State private var showSaveAlert = false
+    @State private var showingSearch = false
+    @State private var searchText = ""
+    @State private var replaceText = ""
+    @State private var undoStack: [String] = []
+    @State private var redoStack: [String] = []
     @Environment(\.dismiss) private var dismiss
     
     var body: some View {
         VStack(spacing: 0) {
+            // Search bar (if shown)
+            if showingSearch {
+                SearchReplaceBar(
+                    searchText: $searchText,
+                    replaceText: $replaceText,
+                    content: $content,
+                    onReplace: performReplace,
+                    onReplaceAll: performReplaceAll,
+                    onClose: { showingSearch = false }
+                )
+            }
+            
             // Editor toolbar
             HStack {
-                Image(systemName: file.type.icon)
-                    .foregroundColor(file.type.color)
+                Image(systemName: file.icon)
+                    .foregroundColor(file.color)
                 Text(file.name)
                     .font(.system(.body, design: .monospaced))
                 
@@ -118,11 +564,18 @@ struct FileEditorView: View {
             .padding()
             .background(Color(.systemGray6))
             
-            // Code editor with line numbers
-            CodeEditorView(
+            // Code editor with syntax highlighting
+            SyntaxHighlightedEditor(
                 content: $content,
                 isEditing: $isEditing,
-                fontSize: $fontSize
+                fontSize: $fontSize,
+                fileExtension: file.path.pathExtension,
+                onTextChange: { newText in
+                    if newText != content {
+                        pushUndo()
+                        content = newText
+                    }
+                }
             )
         }
         .navigationTitle(file.name)
@@ -138,6 +591,24 @@ struct FileEditorView: View {
             
             ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {
+                    Button(action: undo) {
+                        Label("Undo", systemImage: "arrow.uturn.backward")
+                    }
+                    .disabled(undoStack.isEmpty)
+                    
+                    Button(action: redo) {
+                        Label("Redo", systemImage: "arrow.uturn.forward")
+                    }
+                    .disabled(redoStack.isEmpty)
+                    
+                    Divider()
+                    
+                    Button(action: { showingSearch.toggle() }) {
+                        Label("Search & Replace", systemImage: "magnifyingglass")
+                    }
+                    
+                    Divider()
+                    
                     Menu("Font Size") {
                         Button("Small (12pt)") { fontSize = 12 }
                         Button("Medium (14pt)") { fontSize = 14 }
@@ -145,7 +616,7 @@ struct FileEditorView: View {
                         Button("Extra Large (18pt)") { fontSize = 18 }
                     }
                 } label: {
-                    Image(systemName: "textformat.size")
+                    Image(systemName: "ellipsis.circle")
                 }
             }
         }
@@ -163,24 +634,106 @@ struct FileEditorView: View {
         if let data = try? Data(contentsOf: file.path),
            let text = String(data: data, encoding: .utf8) {
             content = text
+            originalContent = text
         }
     }
     
     private func saveFile() {
         do {
             try content.write(to: file.path, atomically: true, encoding: .utf8)
+            originalContent = content
             isEditing = false
             showSaveAlert = true
         } catch {
             print("Error saving file: \(error)")
         }
     }
+    
+    private func pushUndo() {
+        undoStack.append(originalContent)
+        redoStack.removeAll()
+    }
+    
+    private func undo() {
+        guard !undoStack.isEmpty else { return }
+        redoStack.append(content)
+        content = undoStack.removeLast()
+        isEditing = true
+    }
+    
+    private func redo() {
+        guard !redoStack.isEmpty else { return }
+        undoStack.append(content)
+        content = redoStack.removeLast()
+        isEditing = true
+    }
+    
+    private func performReplace() {
+        guard !searchText.isEmpty else { return }
+        if let range = content.range(of: searchText) {
+            pushUndo()
+            content.replaceSubrange(range, with: replaceText)
+            isEditing = true
+        }
+    }
+    
+    private func performReplaceAll() {
+        guard !searchText.isEmpty else { return }
+        pushUndo()
+        content = content.replacingOccurrences(of: searchText, with: replaceText)
+        isEditing = true
+    }
 }
 
-struct CodeEditorView: View {
+// Search and replace bar
+struct SearchReplaceBar: View {
+    @Binding var searchText: String
+    @Binding var replaceText: String
+    @Binding var content: String
+    let onReplace: () -> Void
+    let onReplaceAll: () -> Void
+    let onClose: () -> Void
+    
+    var body: some View {
+        VStack(spacing: 8) {
+            HStack {
+                Image(systemName: "magnifyingglass")
+                    .foregroundColor(.secondary)
+                TextField("Search", text: $searchText)
+                    .textFieldStyle(.roundedBorder)
+                Button(action: onClose) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.secondary)
+                }
+            }
+            
+            HStack {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .foregroundColor(.secondary)
+                TextField("Replace", text: $replaceText)
+                    .textFieldStyle(.roundedBorder)
+                
+                Button("Replace") { onReplace() }
+                    .buttonStyle(.bordered)
+                    .disabled(searchText.isEmpty)
+                
+                Button("All") { onReplaceAll() }
+                    .buttonStyle(.bordered)
+                    .disabled(searchText.isEmpty)
+            }
+        }
+        .padding()
+        .background(Color(.systemGray6))
+    }
+}
+
+// Syntax highlighted editor
+struct SyntaxHighlightedEditor: View {
     @Binding var content: String
     @Binding var isEditing: Bool
     @Binding var fontSize: CGFloat
+    let fileExtension: String
+    let onTextChange: (String) -> Void
     
     var body: some View {
         GeometryReader { geometry in
@@ -192,22 +745,23 @@ struct CodeEditorView: View {
                             Text("\(lineNumber)")
                                 .font(.system(size: fontSize, design: .monospaced))
                                 .foregroundColor(.secondary)
-                                .frame(minWidth: 35, alignment: .trailing)
+                                .frame(minWidth: 40, alignment: .trailing)
                                 .padding(.horizontal, 8)
                         }
                     }
                     .padding(.top, 8)
                     .background(Color(.systemGray6))
                     
-                    // Editor content
+                    // Editor content with basic syntax highlighting
                     TextEditor(text: $content)
                         .font(.system(size: fontSize, design: .monospaced))
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
-                        .onChange(of: content) { _ in
+                        .onChange(of: content) { newValue in
                             isEditing = true
+                            onTextChange(newValue)
                         }
-                        .frame(minWidth: geometry.size.width - 60, minHeight: geometry.size.height, alignment: .topLeading)
+                        .frame(minWidth: geometry.size.width - 70, minHeight: geometry.size.height, alignment: .topLeading)
                 }
             }
         }
@@ -232,37 +786,6 @@ struct NoProjectSelectedView: View {
                 .padding(.horizontal)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-struct ProjectFile {
-    let name: String
-    let type: FileType
-    let path: URL
-    
-    enum FileType: String {
-        case source = "Source Code"
-        case makefile = "Makefile"
-        case control = "Control File"
-        case plist = "Property List"
-        
-        var icon: String {
-            switch self {
-            case .source: return "doc.text.fill"
-            case .makefile: return "hammer.fill"
-            case .control: return "list.bullet.rectangle"
-            case .plist: return "doc.badge.gearshape"
-            }
-        }
-        
-        var color: Color {
-            switch self {
-            case .source: return .blue
-            case .makefile: return .orange
-            case .control: return .green
-            case .plist: return .purple
-            }
-        }
     }
 }
 
