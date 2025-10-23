@@ -2,148 +2,51 @@ import SwiftUI
 
 struct EditorView: View {
     @EnvironmentObject var projectManager: ProjectManager
-    @State private var selectedFile: ProjectFile?
-    @State private var editorContent = ""
-    @State private var isEditing = false
-    @State private var showingSidebar = true
-    @State private var fontSize: CGFloat = 14
     
     var body: some View {
         NavigationView {
-            HStack(spacing: 0) {
+            VStack {
                 if projectManager.currentProject == nil {
                     NoProjectSelectedView()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    // File Sidebar
-                    if showingSidebar {
-                        VStack(alignment: .leading, spacing: 0) {
-                            HStack {
-                                Text("Files")
-                                    .font(.headline)
-                                Spacer()
-                                Button(action: { showingSidebar.toggle() }) {
-                                    Image(systemName: "sidebar.left")
-                                }
-                            }
-                            .padding()
-                            .background(Color(.systemGray6))
-                            
-                            ScrollView {
-                                LazyVStack(alignment: .leading, spacing: 0) {
-                                    ForEach(projectFiles, id: \.name) { file in
-                                        FileRowView(
-                                            file: file,
-                                            isSelected: selectedFile?.name == file.name
-                                        ) {
-                                            selectedFile = file
-                                            loadFileContent()
-                                        }
+                    List {
+                        ForEach(projectFiles, id: \.name) { file in
+                            NavigationLink(destination: FileEditorView(file: file, projectPath: projectManager.currentProject!.path)) {
+                                HStack(spacing: 12) {
+                                    Image(systemName: file.type.icon)
+                                        .foregroundColor(file.type.color)
+                                        .font(.title2)
+                                        .frame(width: 40)
+                                    
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(file.name)
+                                            .font(.headline)
+                                        
+                                        Text(file.type.rawValue)
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+                                    
+                                    Spacer()
+                                    
+                                    if let size = fileSize(for: file) {
+                                        Text(size)
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
                                     }
                                 }
+                                .padding(.vertical, 4)
                             }
-                        }
-                        .frame(width: 240)
-                        .background(Color(.systemGray6))
-                    }
-                    
-                    Divider()
-                    
-                    // Editor Area
-                    VStack(spacing: 0) {
-                        if !showingSidebar {
-                            HStack {
-                                Button(action: { showingSidebar.toggle() }) {
-                                    HStack {
-                                        Image(systemName: "sidebar.left")
-                                        Text("Files")
-                                    }
-                                }
-                                .padding()
-                                Spacer()
-                            }
-                            .background(Color(.systemGray6))
-                        }
-                        
-                        if let file = selectedFile {
-                            // Editor toolbar
-                            HStack {
-                                Image(systemName: file.type.icon)
-                                    .foregroundColor(file.type.color)
-                                Text(file.name)
-                                    .font(.system(.body, design: .monospaced))
-                                
-                                Spacer()
-                                
-                                if isEditing {
-                                    Text("Edited")
-                                        .font(.caption)
-                                        .foregroundColor(.orange)
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 4)
-                                        .background(Color.orange.opacity(0.2))
-                                        .cornerRadius(4)
-                                }
-                                
-                                Button("Save") {
-                                    saveFile()
-                                }
-                                .disabled(!isEditing)
-                                .buttonStyle(.bordered)
-                            }
-                            .padding()
-                            .background(Color(.systemGray6))
-                            
-                            // Code editor with line numbers
-                            CodeEditorView(
-                                content: $editorContent,
-                                isEditing: $isEditing,
-                                fontSize: $fontSize
-                            )
-                        } else {
-                            VStack(spacing: 20) {
-                                Image(systemName: "doc.text")
-                                    .font(.system(size: 60))
-                                    .foregroundColor(.gray)
-                                
-                                Text("No File Selected")
-                                    .font(.title2)
-                                    .fontWeight(.medium)
-                                
-                                Text("Choose a file from the sidebar to start editing")
-                                    .foregroundColor(.secondary)
-                                    .multilineTextAlignment(.center)
-                            }
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
                     }
                 }
             }
-            .navigationTitle(projectManager.currentProject?.name ?? "Editor")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationTitle(projectManager.currentProject?.name ?? "Files")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     if projectManager.currentProject != nil {
-                        Menu {
-                            Button(action: { showingSidebar.toggle() }) {
-                                Label(showingSidebar ? "Hide Sidebar" : "Show Sidebar", systemImage: "sidebar.left")
-                            }
-                            
-                            Menu("Font Size") {
-                                Button("Small (12pt)") { fontSize = 12 }
-                                Button("Medium (14pt)") { fontSize = 14 }
-                                Button("Large (16pt)") { fontSize = 16 }
-                                Button("Extra Large (18pt)") { fontSize = 18 }
-                            }
-                            
-                            Divider()
-                            
-                            Button("Close Project") {
-                                selectedFile = nil
-                                projectManager.currentProject = nil
-                            }
-                        } label: {
-                            Image(systemName: "ellipsis.circle")
+                        Button("Close Project") {
+                            projectManager.currentProject = nil
                         }
                     }
                 }
@@ -156,63 +59,121 @@ struct EditorView: View {
         
         return [
             ProjectFile(name: "Makefile", type: .makefile, path: project.path.appendingPathComponent("Makefile")),
-            ProjectFile(name: "Tweak.x", type: .tweak, path: project.path.appendingPathComponent("Tweak.x")),
+            ProjectFile(name: "Tweak.x", type: .source, path: project.path.appendingPathComponent("Tweak.x")),
             ProjectFile(name: "control", type: .control, path: project.path.appendingPathComponent("control")),
             ProjectFile(name: "\(project.name).plist", type: .plist, path: project.path.appendingPathComponent("\(project.name).plist"))
-        ]
+        ].filter { FileManager.default.fileExists(atPath: $0.path.path) }
+    }
+    
+    private func fileSize(for file: ProjectFile) -> String? {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: file.path.path),
+              let size = attrs[.size] as? Int64 else {
+            return nil
+        }
+        
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: size)
+    }
+}
+
+// Full-screen file editor
+struct FileEditorView: View {
+    let file: ProjectFile
+    let projectPath: URL
+    
+    @State private var content = ""
+    @State private var isEditing = false
+    @State private var fontSize: CGFloat = 14
+    @State private var showSaveAlert = false
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            // Editor toolbar
+            HStack {
+                Image(systemName: file.type.icon)
+                    .foregroundColor(file.type.color)
+                Text(file.name)
+                    .font(.system(.body, design: .monospaced))
+                
+                Spacer()
+                
+                if isEditing {
+                    Text("Edited")
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.orange.opacity(0.2))
+                        .cornerRadius(4)
+                }
+                
+                Button("Save") {
+                    saveFile()
+                }
+                .disabled(!isEditing)
+                .buttonStyle(.borderedProminent)
+            }
+            .padding()
+            .background(Color(.systemGray6))
+            
+            // Code editor with line numbers
+            CodeEditorView(
+                content: $content,
+                isEditing: $isEditing,
+                fontSize: $fontSize
+            )
+        }
+        .navigationTitle(file.name)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button(action: {
+                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                }) {
+                    Image(systemName: "keyboard.chevron.compact.down")
+                }
+            }
+            
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Menu {
+                    Menu("Font Size") {
+                        Button("Small (12pt)") { fontSize = 12 }
+                        Button("Medium (14pt)") { fontSize = 14 }
+                        Button("Large (16pt)") { fontSize = 16 }
+                        Button("Extra Large (18pt)") { fontSize = 18 }
+                    }
+                } label: {
+                    Image(systemName: "textformat.size")
+                }
+            }
+        }
+        .onAppear {
+            loadFileContent()
+        }
+        .alert("File Saved", isPresented: $showSaveAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("Changes saved successfully")
+        }
     }
     
     private func loadFileContent() {
-        guard let file = selectedFile else { return }
-        
-        DispatchQueue.global(qos: .userInitiated).async {
-            do {
-                let content = try String(contentsOf: file.path, encoding: .utf8)
-                DispatchQueue.main.async {
-                    self.editorContent = content
-                    self.isEditing = false
-                }
-            } catch {
-                DispatchQueue.main.async {
-                    self.editorContent = "Error loading file: \(error.localizedDescription)"
-                    self.isEditing = false
-                }
-            }
+        if let data = try? Data(contentsOf: file.path),
+           let text = String(data: data, encoding: .utf8) {
+            content = text
         }
     }
     
     private func saveFile() {
-        guard let file = selectedFile else { return }
-        
-        DispatchQueue.global(qos: .userInitiated).async {
-            do {
-                try editorContent.write(to: file.path, atomically: true, encoding: .utf8)
-                DispatchQueue.main.async {
-                    isEditing = false
-                }
-            } catch {
-                print("Error saving file: \(error)")
-            }
+        do {
+            try content.write(to: file.path, atomically: true, encoding: .utf8)
+            isEditing = false
+            showSaveAlert = true
+        } catch {
+            print("Error saving file: \(error)")
         }
-    }
-}
-
-struct NoProjectSelectedView: View {
-    var body: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "folder.badge.plus")
-                .font(.system(size: 60))
-                .foregroundColor(.gray)
-            
-            Text("No Project Selected")
-                .font(.title2)
-                .fontWeight(.medium)
-            
-            Text("Open a project from the Projects tab to start editing")
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -251,6 +212,57 @@ struct CodeEditorView: View {
             }
         }
         .background(Color(.systemBackground))
+    }
+}
+
+struct NoProjectSelectedView: View {
+    var body: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "folder.badge.questionmark")
+                .font(.system(size: 60))
+                .foregroundColor(.gray)
+            
+            Text("No Project Selected")
+                .font(.title2)
+                .fontWeight(.medium)
+            
+            Text("Select a project from the Projects tab to view its files")
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+struct ProjectFile {
+    let name: String
+    let type: FileType
+    let path: URL
+    
+    enum FileType: String {
+        case source = "Source Code"
+        case makefile = "Makefile"
+        case control = "Control File"
+        case plist = "Property List"
+        
+        var icon: String {
+            switch self {
+            case .source: return "doc.text.fill"
+            case .makefile: return "hammer.fill"
+            case .control: return "list.bullet.rectangle"
+            case .plist: return "doc.badge.gearshape"
+            }
+        }
+        
+        var color: Color {
+            switch self {
+            case .source: return .blue
+            case .makefile: return .orange
+            case .control: return .green
+            case .plist: return .purple
+            }
+        }
     }
 }
 

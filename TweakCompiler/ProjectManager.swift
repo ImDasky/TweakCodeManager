@@ -166,42 +166,66 @@ class ProjectManager: ObservableObject {
             ilog("Created dir: \(projectDir.lastPathComponent)")
             
             let makefile = """
-            export ARCHS = arm64
-            export TARGET = iphone:clang:16.5:14.0
+            ARCHS = arm64 arm64e
+            TARGET := iphone:clang:16.5:14.0
+            INSTALL_TARGET_PROCESSES = \(targetApp)
             
             include $(THEOS)/makefiles/common.mk
             
             TWEAK_NAME = \(name)
+            
             \(name)_FILES = Tweak.x
+            \(name)_CFLAGS = -fobjc-arc
             \(name)_FRAMEWORKS = UIKit Foundation
             
             include $(THEOS_MAKE_PATH)/tweak.mk
-            
-            after-install::
-                install.exec "sbreload"
             """
             
             let tweak = """
+            // \(name) - iOS Tweak
+            // Hooks into \(targetApp)
+            
+            #import <Foundation/Foundation.h>
+            #import <UIKit/UIKit.h>
+            
+            // Example hook - modify as needed
             %hook SpringBoard
             
             - (void)applicationDidFinishLaunching:(id)application {
                 %orig;
-                NSLog(@"\(name) loaded for \(targetApp)!");
+                
+                // Your code here
+                NSLog(@"[\(name)] Tweak loaded successfully!");
+                
+                // Show a simple alert to confirm loading
+                UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"\(name)"
+                                                                             message:@"Tweak loaded!"
+                                                                      preferredStyle:UIAlertControllerStyleAlert];
+                [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+                
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                    [[UIApplication sharedApplication].keyWindow.rootViewController presentViewController:alert animated:YES completion:nil];
+                });
             }
             
             %end
+            
+            // Constructor called when the dylib is loaded
+            %ctor {
+                NSLog(@"[\(name)] Initializing...");
+            }
             """
             
             let control = """
             Package: \(bundleId)
             Name: \(name)
             Version: 1.0.0
-            Architecture: iphoneos-arm
-            Description: Tweak created with TweakCompiler
-            Maintainer: Unknown
-            Author: Unknown
+            Architecture: iphoneos-arm64
+            Description: An awesome tweak created with TweakCompiler
+            Maintainer: Your Name <you@example.com>
+            Author: Your Name <you@example.com>
             Section: Tweaks
-            Depends: mobilesubstrate
+            Depends: mobilesubstrate (>= 0.9.5000), firmware (>= 14.0)
             """
             
             let plist = """

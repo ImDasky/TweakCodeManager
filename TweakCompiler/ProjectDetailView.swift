@@ -102,43 +102,14 @@ struct ProjectDetailView: View {
     private var projectFiles: [ProjectFile] {
         [
             ProjectFile(name: "Makefile", type: .makefile, path: project.path.appendingPathComponent("Makefile")),
-            ProjectFile(name: "Tweak.x", type: .tweak, path: project.path.appendingPathComponent("Tweak.x")),
+            ProjectFile(name: "Tweak.x", type: .source, path: project.path.appendingPathComponent("Tweak.x")),
             ProjectFile(name: "control", type: .control, path: project.path.appendingPathComponent("control")),
             ProjectFile(name: "\(project.name).plist", type: .plist, path: project.path.appendingPathComponent("\(project.name).plist"))
         ]
     }
 }
 
-struct ProjectFile {
-    let name: String
-    let type: FileType
-    let path: URL
-    
-    enum FileType {
-        case makefile
-        case tweak
-        case control
-        case plist
-        
-        var icon: String {
-            switch self {
-            case .makefile: return "doc.text"
-            case .tweak: return "hammer.circle"
-            case .control: return "gear"
-            case .plist: return "list.bullet"
-            }
-        }
-        
-        var color: Color {
-            switch self {
-            case .makefile: return .orange
-            case .tweak: return .blue
-            case .control: return .green
-            case .plist: return .purple
-            }
-        }
-    }
-}
+// ProjectFile struct is now in EditorView.swift to avoid duplication
 
 struct FileRowView: View {
     let file: ProjectFile
