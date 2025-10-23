@@ -8,7 +8,7 @@ struct ContentView: View {
     var body: some View {
         TabView(selection: $selectedTab) {
             // Projects Tab
-            ProjectsView()
+            ProjectsView(selectedTab: $selectedTab)
                 .tabItem {
                     Image(systemName: "folder")
                     Text("Projects")

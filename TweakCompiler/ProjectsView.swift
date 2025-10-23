@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 
 struct ProjectsView: View {
     @EnvironmentObject var projectManager: ProjectManager
-    @State private var selectedProject: TweakProject?
+    @Binding var selectedTab: Int
     @State private var showingNewProject = false
     @State private var newName = ""
     @State private var newBundleId = ""
@@ -34,9 +34,6 @@ struct ProjectsView: View {
                         Image(systemName: "plus")
                     }
                 }
-            }
-            .sheet(item: $selectedProject) { project in
-                ProjectDetailView(project: project)
             }
             .sheet(isPresented: $showingNewProject) {
                 NavigationView {
@@ -108,8 +105,8 @@ struct ProjectsView: View {
                 ForEach(projectManager.projects) { project in
                     ProjectRowView(project: project)
                         .onTapGesture {
-                            selectedProject = project
                             projectManager.openProject(project)
+                            selectedTab = 1 // Switch to Editor tab
                         }
                 }
                 .onDelete(perform: deleteProjects)
@@ -130,8 +127,8 @@ struct ProjectsView: View {
         do {
             let result = try projectManager.importProject(from: url)
             if let project = result.project {
-                selectedProject = project
                 projectManager.openProject(project)
+                selectedTab = 1 // Switch to Editor tab
             }
         } catch {
             errorMessage = "Failed to import project: \(error.localizedDescription)"
@@ -145,13 +142,13 @@ struct ProjectsView: View {
         let trimmedTarget = newTargetApp.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty, !trimmedBundle.isEmpty, !trimmedTarget.isEmpty else { return }
         if let project = projectManager.createProject(name: trimmedName, bundleId: trimmedBundle, targetApp: trimmedTarget) {
-            selectedProject = project
             projectManager.openProject(project)
             projectManager.loadProjects()
             newName = ""
             newBundleId = ""
             newTargetApp = "com.apple.springboard"
             showingNewProject = false
+            selectedTab = 1 // Switch to Editor tab
         } else {
             errorMessage = "Could not create files in Application Support/TweakProjects. Check the Activity Log below."
             showErrorAlert = true
@@ -241,6 +238,6 @@ struct DocumentPicker: UIViewControllerRepresentable {
 }
 
 #Preview {
-    ProjectsView()
+    ProjectsView(selectedTab: .constant(0))
         .environmentObject(ProjectManager())
 }
