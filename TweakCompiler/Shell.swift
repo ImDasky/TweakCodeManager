@@ -61,7 +61,7 @@ func executeCommand(
     defer { for case let arg? in argv { free(arg) } }
     
     // Set up environment
-    let theosPath = "/var/jb/usr/share/theos"
+    let theosPath = "/var/theos"
     let envStrings = [
         "PATH=/var/jb/usr/bin:/var/jb/bin:/usr/bin:/bin:/usr/sbin:/sbin",
         "HOME=\(NSHomeDirectory())",
