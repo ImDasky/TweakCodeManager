@@ -604,14 +604,6 @@ struct FileEditorView: View {
         .navigationTitle(file.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
-                Button(action: {
-                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-                }) {
-                    Image(systemName: "keyboard.chevron.compact.down")
-                }
-            }
-            
             ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {
                     Button(action: undo) {
@@ -786,6 +778,10 @@ struct SyntaxHighlightedTextEditorWithLineNumbers: UIViewRepresentable {
         textView.font = UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
         textView.autocorrectionType = .no
         textView.autocapitalizationType = .none
+        textView.spellCheckingType = .no
+        textView.smartQuotesType = .no
+        textView.smartDashesType = .no
+        textView.smartInsertDeleteType = .no
         textView.backgroundColor = .systemBackground
         textView.textColor = .label
         textView.text = text
