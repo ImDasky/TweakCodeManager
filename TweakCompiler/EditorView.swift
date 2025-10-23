@@ -70,7 +70,7 @@ struct FileListView: View {
                             .frame(width: 40)
                         
                         Text(item.name)
-                            .font(.headline)
+                                            .font(.headline)
                                     
                                     Spacer()
                     }
@@ -536,6 +536,7 @@ struct FileEditorView: View {
     @State private var content = ""
     @State private var originalContent = ""
     @State private var fontSize: CGFloat = 14
+    @State private var currentLine: Int = 1
     @State private var showSaveAlert = false
     @State private var showingSearch = false
     @State private var searchText = ""
@@ -590,6 +591,7 @@ struct FileEditorView: View {
             SyntaxHighlightedEditor(
                 content: $content,
                 fontSize: $fontSize,
+                currentLine: $currentLine,
                 fileExtension: file.path.pathExtension,
                 onTextChange: { newText in
                     if newText != content {
@@ -750,10 +752,11 @@ struct SearchReplaceBar: View {
     }
 }
 
-// Syntax highlighted editor with line numbers
+// Syntax highlighted editor with line indicator
 struct SyntaxHighlightedEditor: View {
     @Binding var content: String
     @Binding var fontSize: CGFloat
+    @Binding var currentLine: Int
     let fileExtension: String
     let onTextChange: (String) -> Void
     
@@ -762,77 +765,88 @@ struct SyntaxHighlightedEditor: View {
             text: $content,
             fontSize: fontSize,
             fileExtension: fileExtension,
-            onTextChange: onTextChange
+            onTextChange: onTextChange,
+            currentLine: $currentLine
         )
         .background(Color(.systemBackground))
     }
 }
 
-// Custom text editor with built-in line numbers and syntax highlighting
+// Custom text editor with syntax highlighting and line indicator
 struct SyntaxHighlightedTextEditorWithLineNumbers: UIViewRepresentable {
     @Binding var text: String
     let fontSize: CGFloat
     let fileExtension: String
     let onTextChange: (String) -> Void
+    @Binding var currentLine: Int
     
-    func makeUIView(context: Context) -> LineNumberTextView {
-        let textView = LineNumberTextView()
-        textView.textView.delegate = context.coordinator
-        textView.textView.font = UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
-        textView.textView.autocorrectionType = .no
-        textView.textView.autocapitalizationType = .none
-        textView.textView.backgroundColor = .systemBackground
-        textView.textView.textColor = .label
-        textView.fontSize = fontSize
-        textView.textView.text = text
+    func makeUIView(context: Context) -> UITextView {
+        let textView = UITextView()
+        textView.delegate = context.coordinator
+        textView.font = UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        textView.autocorrectionType = .no
+        textView.autocapitalizationType = .none
+        textView.backgroundColor = .systemBackground
+        textView.textColor = .label
+        textView.text = text
         
-        // Set line number inset to match text view
-        textView.lineNumberView.textViewInset = textView.textView.textContainerInset.top
+        // Create keyboard toolbar
+        let toolbar = UIToolbar()
+        toolbar.sizeToFit()
         
-        // Store reference to parent view in coordinator
-        context.coordinator.lineNumberTextView = textView
+        let lineLabel = UILabel()
+        lineLabel.text = "Line: 1"
+        lineLabel.font = UIFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        lineLabel.textColor = .secondaryLabel
+        lineLabel.tag = 999 // Tag to find it later
+        
+        let labelItem = UIBarButtonItem(customView: lineLabel)
+        let flexSpace = UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil)
+        let doneButton = UIBarButtonItem(barButtonSystemItem: .done, target: context.coordinator, action: #selector(Coordinator.dismissKeyboard))
+        
+        toolbar.items = [labelItem, flexSpace, doneButton]
+        textView.inputAccessoryView = toolbar
+        
+        // Store reference to text view in coordinator
+        context.coordinator.textView = textView
         
         // Apply syntax highlighting
-        context.coordinator.applySyntaxHighlighting(to: textView.textView, fileExtension: fileExtension)
-        
-        // Initialize line numbers
-        textView.updateLineNumbers()
+        context.coordinator.applySyntaxHighlighting(to: textView, fileExtension: fileExtension)
         
         return textView
     }
     
-    func updateUIView(_ textView: LineNumberTextView, context: Context) {
-        if textView.textView.text != text {
-            let selectedRange = textView.textView.selectedRange
-            textView.textView.text = text
+    func updateUIView(_ textView: UITextView, context: Context) {
+        if textView.text != text {
+            let selectedRange = textView.selectedRange
+            textView.text = text
             
             // Reapply syntax highlighting
-            context.coordinator.applySyntaxHighlighting(to: textView.textView, fileExtension: fileExtension)
-            
-            // Update line numbers
-            textView.updateLineNumbers()
+            context.coordinator.applySyntaxHighlighting(to: textView, fileExtension: fileExtension)
             
             // Restore cursor position
-            textView.textView.selectedRange = selectedRange
+            textView.selectedRange = selectedRange
         }
         
-        textView.textView.font = UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
-        textView.fontSize = fontSize
-        textView.updateLineNumbers()
-        textView.setNeedsLayout()
+        textView.font = UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        
+        // Update current line display
+        context.coordinator.updateCurrentLine()
     }
     
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text, onTextChange: onTextChange)
+        Coordinator(text: $text, currentLine: $currentLine, onTextChange: onTextChange)
     }
     
     class Coordinator: NSObject, UITextViewDelegate {
         @Binding var text: String
+        @Binding var currentLine: Int
         let onTextChange: (String) -> Void
-        weak var lineNumberTextView: LineNumberTextView?
+        weak var textView: UITextView?
         
-        init(text: Binding<String>, onTextChange: @escaping (String) -> Void) {
+        init(text: Binding<String>, currentLine: Binding<Int>, onTextChange: @escaping (String) -> Void) {
             _text = text
+            _currentLine = currentLine
             self.onTextChange = onTextChange
         }
         
@@ -840,13 +854,33 @@ struct SyntaxHighlightedTextEditorWithLineNumbers: UIViewRepresentable {
             text = textView.text
             onTextChange(textView.text)
             applySyntaxHighlighting(to: textView, fileExtension: "x")
-            
-            // Update line numbers
-            lineNumberTextView?.updateLineNumbers()
+            updateCurrentLine()
         }
         
-        func scrollViewDidScroll(_ scrollView: UIScrollView) {
-            lineNumberTextView?.lineNumberView.contentOffset = scrollView.contentOffset.y
+        func textViewDidChangeSelection(_ textView: UITextView) {
+            updateCurrentLine()
+        }
+        
+        @objc func dismissKeyboard() {
+            textView?.resignFirstResponder()
+        }
+        
+        func updateCurrentLine() {
+            guard let textView = textView else { return }
+            
+            // Calculate current line number
+            let cursorPosition = textView.selectedRange.location
+            let textBeforeCursor = (textView.text as NSString).substring(to: cursorPosition)
+            let lineNumber = textBeforeCursor.components(separatedBy: .newlines).count
+            
+            currentLine = lineNumber
+            
+            // Update toolbar label
+            if let toolbar = textView.inputAccessoryView as? UIToolbar,
+               let labelItem = toolbar.items?.first,
+               let label = labelItem.customView as? UILabel {
+                label.text = "Line: \(lineNumber)"
+            }
         }
         
         func applySyntaxHighlighting(to textView: UITextView, fileExtension: String) {
@@ -882,116 +916,6 @@ struct SyntaxHighlightedTextEditorWithLineNumbers: UIViewRepresentable {
             
             for match in matches {
                 attributedString.addAttribute(.foregroundColor, value: color, range: match.range)
-            }
-        }
-    }
-}
-
-// Custom UIView that combines a line number view with a text view
-class LineNumberTextView: UIView {
-    let lineNumberView = LineNumberGutterView()
-    let textView = UITextView()
-    var fontSize: CGFloat = 14 {
-        didSet {
-            lineNumberView.fontSize = fontSize
-            textView.font = UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
-        }
-    }
-    
-    private let lineNumberWidth: CGFloat = 56
-    
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        setupViews()
-    }
-    
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        setupViews()
-    }
-    
-    private func setupViews() {
-        // Line number view
-        lineNumberView.backgroundColor = .systemGray6
-        lineNumberView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(lineNumberView)
-        
-        // Text view
-        textView.translatesAutoresizingMaskIntoConstraints = false
-        textView.textContainerInset = UIEdgeInsets(top: 8, left: 4, bottom: 8, right: 4)
-        addSubview(textView)
-        
-        // Constraints
-        NSLayoutConstraint.activate([
-            lineNumberView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            lineNumberView.topAnchor.constraint(equalTo: topAnchor),
-            lineNumberView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            lineNumberView.widthAnchor.constraint(equalToConstant: lineNumberWidth),
-            
-            textView.leadingAnchor.constraint(equalTo: lineNumberView.trailingAnchor),
-            textView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            textView.topAnchor.constraint(equalTo: topAnchor),
-            textView.bottomAnchor.constraint(equalTo: bottomAnchor)
-        ])
-    }
-    
-    func updateLineNumbers() {
-        lineNumberView.lineCount = max(1, textView.text.components(separatedBy: .newlines).count)
-        lineNumberView.textViewInset = textView.textContainerInset.top
-        lineNumberView.setNeedsDisplay()
-    }
-}
-
-// Custom view that draws line numbers
-class LineNumberGutterView: UIView {
-    var lineCount: Int = 1 {
-        didSet {
-            setNeedsDisplay()
-        }
-    }
-    
-    var fontSize: CGFloat = 14 {
-        didSet {
-            setNeedsDisplay()
-        }
-    }
-    
-    var textViewInset: CGFloat = 8
-    var contentOffset: CGFloat = 0 {
-        didSet {
-            setNeedsDisplay()
-        }
-    }
-    
-    override func draw(_ rect: CGRect) {
-        guard let context = UIGraphicsGetCurrentContext() else { return }
-        
-        // Clear background
-        UIColor.systemGray6.setFill()
-        context.fill(rect)
-        
-        // Calculate line height (same as UITextView)
-        let font = UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
-        let lineHeight = font.lineHeight
-        
-        // Draw line numbers
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: UIColor.secondaryLabel
-        ]
-        
-        // Start position matches text view's inset
-        let startY = textViewInset - contentOffset
-        
-        for lineNumber in 1...lineCount {
-            let text = "\(lineNumber)" as NSString
-            let y = startY + (CGFloat(lineNumber - 1) * lineHeight)
-            
-            // Only draw if visible
-            if y + lineHeight >= 0 && y <= rect.height {
-                let size = text.size(withAttributes: attributes)
-                let x = rect.width - size.width - 8
-                text.draw(at: CGPoint(x: x, y: y), withAttributes: attributes)
             }
         }
     }
