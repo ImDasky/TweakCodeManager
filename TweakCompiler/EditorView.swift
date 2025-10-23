@@ -537,7 +537,6 @@ struct FileEditorView: View {
     @State private var originalContent = ""
     @State private var fontSize: CGFloat = 14
     @State private var currentLine: Int = 1
-    @State private var showSaveAlert = false
     @State private var showingSearch = false
     @State private var searchText = ""
     @State private var replaceText = ""
@@ -638,11 +637,6 @@ struct FileEditorView: View {
         .onAppear {
             loadFileContent()
         }
-        .alert("File Saved", isPresented: $showSaveAlert) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text("Changes saved successfully")
-        }
     }
     
     private func loadFileContent() {
@@ -657,7 +651,6 @@ struct FileEditorView: View {
         do {
             try content.write(to: file.path, atomically: true, encoding: .utf8)
             originalContent = content
-            showSaveAlert = true
         } catch {
             print("Error saving file: \(error)")
         }

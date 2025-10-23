@@ -7,5 +7,5 @@ Author: TweakCompiler Team
 Section: Development
 Icon: file:///Applications/TweakCompiler.app/AppIcon60x60@2x.png
 Architecture: iphoneos-arm64
-Version: 1.0.0-60+debug
-Installed-Size: 7212
+Version: 1.0.0-61+debug
+Installed-Size: 7208
