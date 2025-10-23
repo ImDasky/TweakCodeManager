@@ -210,11 +210,11 @@ class CompilationManager: ObservableObject {
             } else {
                 addLog("⚠️ Package may have been created but could not be located", type: .warning)
             }
-            lastCompilationResult = CompilationResult(success: true, project: project)
+            lastCompilationResult = CompilationResult(success: true, project: project, timestamp: Date())
         } else {
             addLog("❌ Compilation failed", type: .error)
             addLog("Check the log above for errors", type: .error)
-            lastCompilationResult = CompilationResult(success: false, project: project)
+            lastCompilationResult = CompilationResult(success: false, project: project, timestamp: Date())
         }
     }
     
@@ -269,8 +269,14 @@ enum LogType {
     }
 }
 
-struct CompilationResult {
+struct CompilationResult: Equatable {
     let success: Bool
     let project: TweakProject
-    let timestamp = Date()
+    let timestamp: Date
+    
+    static func == (lhs: CompilationResult, rhs: CompilationResult) -> Bool {
+        return lhs.success == rhs.success &&
+               lhs.project.id == rhs.project.id &&
+               lhs.timestamp == rhs.timestamp
+    }
 }

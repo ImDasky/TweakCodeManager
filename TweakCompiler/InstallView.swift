@@ -88,8 +88,12 @@ struct NoProjectSelectedInstallView: View {
 
 struct CurrentProjectSection: View {
     let project: TweakProject
+    @EnvironmentObject var compilationManager: CompilationManager
     @State private var hasCompiledPackage = false
     @State private var packagePath: URL?
+    @State private var isInstalling = false
+    @State private var installLog: [String] = []
+    @State private var showInstallLog = false
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -135,21 +139,55 @@ struct CurrentProjectSection: View {
             }
             
             if hasCompiledPackage {
-                HStack(spacing: 12) {
-                    Button("Install via Sileo") {
-                        installViaSileo()
+                if isInstalling {
+                    VStack(spacing: 12) {
+                        ProgressView("Installing...")
+                            .progressViewStyle(CircularProgressViewStyle())
+                        
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: 4) {
+                                ForEach(installLog, id: \.self) { log in
+                                    Text(log)
+                                        .font(.system(.caption, design: .monospaced))
+                                        .foregroundColor(.primary)
+                                }
+                            }
+                        }
+                        .frame(maxHeight: 200)
+                        .padding()
+                        .background(Color(.systemBackground))
+                        .cornerRadius(8)
                     }
-                    .buttonStyle(.borderedProminent)
-                    
-                    Button("Install via Zebra") {
-                        installViaZebra()
+                } else {
+                    VStack(spacing: 8) {
+                        HStack(spacing: 12) {
+                            Button(action: installViaSileo) {
+                                Label("Install", systemImage: "arrow.down.circle.fill")
+                            }
+                            .buttonStyle(.borderedProminent)
+                            
+                            Button(action: installViaFilza) {
+                                Label("Open in Filza", systemImage: "folder.fill")
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                        
+                        if showInstallLog && !installLog.isEmpty {
+                            ScrollView {
+                                LazyVStack(alignment: .leading, spacing: 4) {
+                                    ForEach(installLog, id: \.self) { log in
+                                        Text(log)
+                                            .font(.system(.caption, design: .monospaced))
+                                            .foregroundColor(.primary)
+                                    }
+                                }
+                            }
+                            .frame(maxHeight: 150)
+                            .padding()
+                            .background(Color(.systemBackground))
+                            .cornerRadius(8)
+                        }
                     }
-                    .buttonStyle(.bordered)
-                    
-                    Button("Install via Filza") {
-                        installViaFilza()
-                    }
-                    .buttonStyle(.bordered)
                 }
             } else {
                 Text("Compile your project first to create a .deb package")
@@ -164,30 +202,92 @@ struct CurrentProjectSection: View {
         .onAppear {
             checkForCompiledPackage()
         }
+        .onChange(of: compilationManager.lastCompilationResult) { _ in
+            checkForCompiledPackage()
+        }
     }
     
     private func checkForCompiledPackage() {
         let packagesPath = project.path.appendingPathComponent("packages")
-        let debFileName = "\(project.name)_1.0.0_iphoneos-arm.deb"
-        let debPath = packagesPath.appendingPathComponent(debFileName)
         
-        hasCompiledPackage = FileManager.default.fileExists(atPath: debPath.path)
-        packagePath = hasCompiledPackage ? debPath : nil
+        // Look for any .deb file in packages directory
+        if let debFiles = try? FileManager.default.contentsOfDirectory(atPath: packagesPath.path).filter({ $0.hasSuffix(".deb") }),
+           let latestDeb = debFiles.sorted().last {
+            hasCompiledPackage = true
+            packagePath = packagesPath.appendingPathComponent(latestDeb)
+        } else {
+            hasCompiledPackage = false
+            packagePath = nil
+        }
     }
     
     private func installViaSileo() {
         guard let packagePath = packagePath else { return }
-        // TODO: Open in Sileo
+        installDirectly(packagePath)
     }
     
     private func installViaZebra() {
         guard let packagePath = packagePath else { return }
-        // TODO: Open in Zebra
+        installDirectly(packagePath)
     }
     
     private func installViaFilza() {
         guard let packagePath = packagePath else { return }
-        // TODO: Open in Filza
+        // Try to open with Filza using file:// URL
+        if let url = URL(string: "filza://view\(packagePath.path)") {
+            UIApplication.shared.open(url)
+        } else {
+            // Fallback to direct install
+            installDirectly(packagePath)
+        }
+    }
+    
+    private func installDirectly(_ debPath: URL) {
+        isInstalling = true
+        installLog.removeAll()
+        showInstallLog = true
+        
+        installLog.append("📦 Installing \(debPath.lastPathComponent)...")
+        installLog.append("📍 Path: \(debPath.path)")
+        
+        DispatchQueue.global(qos: .userInitiated).async {
+            // Run dpkg -i to install the package
+            let (exitCode, output, error) = executeCommand("dpkg", arguments: ["-i", debPath.path])
+            
+            DispatchQueue.main.async {
+                if exitCode == 0 {
+                    installLog.append("✅ Installation successful!")
+                    installLog.append("")
+                    installLog.append("Output:")
+                    if !output.isEmpty {
+                        output.components(separatedBy: .newlines).forEach { line in
+                            if !line.isEmpty {
+                                installLog.append(line)
+                            }
+                        }
+                    }
+                    
+                    // Run uicache to register any apps
+                    installLog.append("")
+                    installLog.append("🔄 Refreshing icon cache...")
+                    let (_, _, _) = executeCommand("uicache", arguments: ["-a"])
+                    installLog.append("✅ Done! Respring may be required.")
+                } else {
+                    installLog.append("❌ Installation failed with exit code \(exitCode)")
+                    installLog.append("")
+                    installLog.append("Error:")
+                    if !error.isEmpty {
+                        error.components(separatedBy: .newlines).forEach { line in
+                            if !line.isEmpty {
+                                installLog.append(line)
+                            }
+                        }
+                    }
+                }
+                
+                isInstalling = false
+            }
+        }
     }
 }
 

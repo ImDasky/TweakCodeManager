@@ -429,21 +429,53 @@ struct CreditRowView: View {
 }
 
 class SettingsManager: ObservableObject {
-    @Published var theosPath = ""
-    @Published var sdkPath = ""
-    @Published var autoSaveBeforeCompile = true
-    @Published var showCompilationProgress = true
-    @Published var cleanBuildByDefault = false
-    @Published var compilationThreads = 4
-    @Published var syntaxHighlighting = true
-    @Published var showLineNumbers = true
-    @Published var autoIndent = true
-    @Published var wordWrap = true
-    @Published var fontSize: Double = 14
-    @Published var defaultPackageManager = PackageManager.sileo
-    @Published var autoOpenAfterInstall = true
-    @Published var keepDebFiles = true
-    @Published var projectsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!.appendingPathComponent("TweakProjects")
+    private let defaults = UserDefaults.standard
+    
+    @Published var theosPath = "/var/theos" {
+        didSet { defaults.set(theosPath, forKey: "theosPath") }
+    }
+    @Published var sdkPath = "/var/theos/sdks" {
+        didSet { defaults.set(sdkPath, forKey: "sdkPath") }
+    }
+    @Published var autoSaveBeforeCompile = true {
+        didSet { defaults.set(autoSaveBeforeCompile, forKey: "autoSaveBeforeCompile") }
+    }
+    @Published var showCompilationProgress = true {
+        didSet { defaults.set(showCompilationProgress, forKey: "showCompilationProgress") }
+    }
+    @Published var cleanBuildByDefault = false {
+        didSet { defaults.set(cleanBuildByDefault, forKey: "cleanBuildByDefault") }
+    }
+    @Published var compilationThreads = 4 {
+        didSet { defaults.set(compilationThreads, forKey: "compilationThreads") }
+    }
+    @Published var syntaxHighlighting = true {
+        didSet { defaults.set(syntaxHighlighting, forKey: "syntaxHighlighting") }
+    }
+    @Published var showLineNumbers = true {
+        didSet { defaults.set(showLineNumbers, forKey: "showLineNumbers") }
+    }
+    @Published var autoIndent = true {
+        didSet { defaults.set(autoIndent, forKey: "autoIndent") }
+    }
+    @Published var wordWrap = true {
+        didSet { defaults.set(wordWrap, forKey: "wordWrap") }
+    }
+    @Published var fontSize: Double = 14 {
+        didSet { defaults.set(fontSize, forKey: "fontSize") }
+    }
+    @Published var defaultPackageManager = PackageManager.sileo {
+        didSet { defaults.set(defaultPackageManager.rawValue, forKey: "defaultPackageManager") }
+    }
+    @Published var autoOpenAfterInstall = true {
+        didSet { defaults.set(autoOpenAfterInstall, forKey: "autoOpenAfterInstall") }
+    }
+    @Published var keepDebFiles = true {
+        didSet { defaults.set(keepDebFiles, forKey: "keepDebFiles") }
+    }
+    @Published var projectsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!.appendingPathComponent("TweakProjects") {
+        didSet { defaults.set(projectsDirectory.path, forKey: "projectsDirectory") }
+    }
     
     enum PackageManager: String, CaseIterable {
         case sileo = "Sileo"
@@ -451,9 +483,36 @@ class SettingsManager: ObservableObject {
         case filza = "Filza"
     }
     
+    init() {
+        // Load saved settings
+        self.theosPath = defaults.string(forKey: "theosPath") ?? "/var/theos"
+        self.sdkPath = defaults.string(forKey: "sdkPath") ?? "/var/theos/sdks"
+        self.autoSaveBeforeCompile = defaults.object(forKey: "autoSaveBeforeCompile") as? Bool ?? true
+        self.showCompilationProgress = defaults.object(forKey: "showCompilationProgress") as? Bool ?? true
+        self.cleanBuildByDefault = defaults.object(forKey: "cleanBuildByDefault") as? Bool ?? false
+        self.compilationThreads = defaults.integer(forKey: "compilationThreads") != 0 ? defaults.integer(forKey: "compilationThreads") : 4
+        self.syntaxHighlighting = defaults.object(forKey: "syntaxHighlighting") as? Bool ?? true
+        self.showLineNumbers = defaults.object(forKey: "showLineNumbers") as? Bool ?? true
+        self.autoIndent = defaults.object(forKey: "autoIndent") as? Bool ?? true
+        self.wordWrap = defaults.object(forKey: "wordWrap") as? Bool ?? true
+        self.fontSize = defaults.double(forKey: "fontSize") != 0 ? defaults.double(forKey: "fontSize") : 14
+        
+        if let pmString = defaults.string(forKey: "defaultPackageManager"),
+           let pm = PackageManager(rawValue: pmString) {
+            self.defaultPackageManager = pm
+        }
+        
+        self.autoOpenAfterInstall = defaults.object(forKey: "autoOpenAfterInstall") as? Bool ?? true
+        self.keepDebFiles = defaults.object(forKey: "keepDebFiles") as? Bool ?? true
+        
+        if let projectsPath = defaults.string(forKey: "projectsDirectory") {
+            self.projectsDirectory = URL(fileURLWithPath: projectsPath)
+        }
+    }
+    
     func resetToDefaults() {
-        theosPath = ""
-        sdkPath = ""
+        theosPath = "/var/theos"
+        sdkPath = "/var/theos/sdks"
         autoSaveBeforeCompile = true
         showCompilationProgress = true
         cleanBuildByDefault = false
